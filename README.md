@@ -191,16 +191,16 @@ Task arrives → Keyword scan → Criticality floor applied
 
 
 
+
 ## 🔌 Ecosystem Integrations 
 
-`llm-gate` isn't just a CLI; it's a universal policy engine for the entire AI agent ecosystem. We provide drop-in hooks for:
+`llm-gate` is the universal policy engine and criticality router for the AI agent ecosystem. We natively support:
 
-- **Enterprise Gateways:** Intelligent backend for [OmniRoute](https://github.com/diegosouzapw/OmniRoute)
+- **Enterprise Gateways:** Intelligent backend for [OmniRoute & 9router](docs/integrations/omniroute-9router.md), and [LiteLLM Custom Hooks](docs/integrations/litellm.md)
+- **Top CLI Agents:** [Aider](docs/integrations/aider.md), [Claude Code](docs/integrations/claude-code-hook.md), [Codex & Hermes](docs/integrations/codex-hermes.md)
 - **Agentic IDEs:** [Cursor / Continue.dev / Roo Code](docs/integrations/cursor-vscode.md)
-- **Anthropic Tools:** [Claude Code Hook](docs/integrations/claude-code-hook.md)
-- **DeepMind Tools:** [Antigravity (agy)](docs/integrations/antigravity.md)
-- **Coding Agents:** [OpenCode](docs/integrations/opencode.md), [Codex & Hermes](docs/integrations/codex-hermes.md), [Jcode](docs/integrations/jcode.md)
-- **Autonomous Loops:** [OpenClaw & NemoClaw](docs/integrations/openclaw.md), [Mimo](docs/integrations/mimo.md)
+- **Autonomous Platforms:** [OpenHands (OpenDevin)](docs/integrations/openhands.md), [OpenClaw & NemoClaw](docs/integrations/openclaw.md)
+- **Specialized Tools:** [Antigravity (agy)](docs/integrations/antigravity.md), [OpenCode](docs/integrations/opencode.md), [Jcode](docs/integrations/jcode.md), [Mimo](docs/integrations/mimo.md)
 
 ---
 ## Philosophy
