@@ -192,6 +192,7 @@ Task arrives → Keyword scan → Criticality floor applied
 
 
 
+
 ## 🔌 Ecosystem Integrations 
 
 `llm-gate` is the universal policy engine and criticality router for the AI agent ecosystem. We natively support:
@@ -201,6 +202,8 @@ Task arrives → Keyword scan → Criticality floor applied
 - **Agentic IDEs:** [Cursor / Continue.dev / Roo Code](docs/integrations/cursor-vscode.md)
 - **Autonomous Platforms:** [OpenHands (OpenDevin)](docs/integrations/openhands.md), [OpenClaw & NemoClaw](docs/integrations/openclaw.md)
 - **Specialized Tools:** [Antigravity (agy)](docs/integrations/antigravity.md), [OpenCode](docs/integrations/opencode.md), [Jcode](docs/integrations/jcode.md), [Mimo](docs/integrations/mimo.md)
+- **Developer SDKs:** [Anthropic SDK & Agent Frameworks](docs/integrations/anthropic-sdk.md)
+- **Unknown Tools:** [Universal Agnostic Protocols (Terse CLI & REST)](docs/integrations/universal-agnostic.md)
 
 ---
 ## Philosophy

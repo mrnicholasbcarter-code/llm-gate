@@ -62,7 +62,7 @@ def cmd_setup() -> None:
     console.print(f"\n[bold green]✔ Saved configuration to llm-gate.yaml![/bold green]")
     console.print("Run [bold cyan]llm-gate route \"hello world\"[/bold cyan] to test the router.")
 
-def cmd_route(task: str, criticality: str) -> None:
+def cmd_route(task: str, criticality: str, terse: bool = False) -> None:
     """Route a task and visually display the decision."""
     # Simplified default Gate for the CLI demo if yaml doesn't exist
     if os.path.exists("llm-gate.yaml"):
@@ -89,7 +89,11 @@ def cmd_route(task: str, criticality: str) -> None:
             }
         )
 
-    with console.status("[bold green]Evaluating network & heuristics...", spinner="dots"):
+        if terse:
+        dec = gate.route(task, criticality)
+        print(dec.model)
+        return
+with console.status("[bold green]Evaluating network & heuristics...", spinner="dots"):
         dec = gate.route(task, criticality)
 
     # Format output panel
@@ -176,7 +180,8 @@ def main() -> None:
     # Command: route
     route_p = subparsers.add_parser("route", help="Route a single prompt/task")
     route_p.add_argument("task", help="Task description or prompt text")
-    route_p.add_argument("--criticality", default="medium", choices=["critical", "high", "medium", "low"], help="Requested baseline criticality")
+        route_p.add_argument("--terse", action="store_true", help="Output ONLY the target model string (for bash piping)")
+route_p.add_argument("--criticality", default="medium", choices=["critical", "high", "medium", "low"], help="Requested baseline criticality")
 
     # Command: stats
     stats_p = subparsers.add_parser("stats", help="View routing analytics and cost savings dashboard")
@@ -195,7 +200,7 @@ args = parser.parse_args()
     if args.command == "setup":
         cmd_setup()
     elif args.command == "route":
-        cmd_route(args.task, args.criticality)
+        cmd_route(args.task, args.criticality, getattr(args, "terse", False))
             elif args.command == "serve":
         try:
             import uvicorn
