@@ -9,17 +9,100 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/llm-gate/"><img src="https://img.shields.io/pypi/v/llm-gate?color=blue" alt="PyPI" /></a>
-  <a href="https://github.com/mrnicholasbcarter-code/llm-gate/actions"><img src="https://img.shields.io/github/actions/workflow/status/mrnicholasbcarter-code/llm-gate/ci.yml?label=tests" alt="Tests" /></a>
-  <a href="https://github.com/mrnicholasbcarter-code/llm-gate/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License" /></a>
-  <a href="https://pepy.tech/project/llm-gate"><img src="https://img.shields.io/pepy/dt/llm-gate?color=orange" alt="Downloads" /></a>
+  <img src="https://img.shields.io/pypi/v/llm-gate?color=blue" alt="PyPI" />
+  <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python Version" />
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
 </p>
+
+---
+
+## ⚡ The Headless Quickstart (All OS)
+
+Want to skip the interactive wizard and deploy `llm-gate` headless in CI/CD or directly to your server? Run this one-liner in your terminal (macOS, Linux, or WSL):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/mrnicholasbcarter-code/llm-gate/main/quickstart.sh | bash
+```
+
+**Or manually for Windows/AnyOS:**
+```bash
+mkdir -p ~/.llm-gate && cat << 'EOF' > ~/.llm-gate/llm-gate.yaml
+primary_model: "anthropic/claude-3-opus-20240229"
+providers:
+  anthropic:
+    base_url: "https://api.anthropic.com/v1"
+    api_key_env: "ANTHROPIC_API_KEY"
+  groq:
+    base_url: "https://api.groq.com/openai/v1"
+    api_key_env: "GROQ_API_KEY"
+EOF
+pip install llm-gate[rich,pyyaml]
+```
+
+---
+
+## 🌟 The CLI Dashboard
+
+`llm-gate` ships with a breathtaking terminal UI built on `rich`. 
+
+### `llm-gate setup`
+Don't want to mess with YAML? Run the interactive wizard to map your providers.
+```text
+╭─────────────────────────────────────────────────────────╮
+│ llm-gate Setup Wizard                                   │
+│ Let's configure your routing engine.                    │
+╰─────────────────────────────────────────────────────────╯
+Enter your Tier 0 (Critical) primary model [anthropic/claude-3-opus-20240229]:
+Let's add some offload providers (Tier 1-3).
+Provider name (e.g., anthropic, groq, local_ollama): groq
+Base URL for groq [https://api.anthropic.com/v1]: https://api.groq.com/openai/v1
+Environment variable for API key (leave blank if none) []: GROQ_API_KEY
+✔ Saved configuration to llm-gate.yaml!
+```
+
+### `llm-gate route "<prompt>"`
+Visually test how a prompt is escalated and which model is selected.
+```text
+╭─ Routing Decision ────────────────────────────────────────╮
+│ Task: Review this payment processing module for race...   │
+│                                                           │
+│ Decision:                                                 │
+│ • Model:     anthropic/claude-3-opus-20240229             │
+│ • Provider:  primary                                      │
+│ • Tier:      T0                                           │
+│ • Status:    ⚠ ESCALATED                                  │
+│ • Latency:   12.4ms                                       │
+│                                                           │
+│ Reason: escalated to tier 0 (money-path); critical        │
+╰───────────────────────────────────────────────────────────╯
+```
+
+### `llm-gate stats`
+Analyze your true spend and routing distribution across models instantly.
+```text
+  Routing Distribution by Tier  
+ ┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━┓
+ ┃        Tier        ┃   Volume ┃ % of Traffic ┃
+ ┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━┩
+ │ T0 (Money Path / UI)      142          4.9 % │
+ │ T1 (High Cap)             840         29.0 % │
+ │ T2 (Logic)               1120         38.6 % │
+ │ T3 (Formatting)           798         27.5 % │
+ └────────────────────┴──────────┴──────────────┘
+ Total Requests: 2900
+ P50 Latency: 4.2ms
+
+ Top Routed Models:
+   • groq/llama-3-8192: 798 calls
+   • anthropic/claude-3-sonnet: 550 calls
+   • primary/claude-3-opus: 142 calls
+```
 
 ---
 
 ## The Problem
 
-You're paying for Claude Opus / GPT-4o / Grok-3 to reformat JSON, summarize logs, and lint docstrings.
+You're paying for **Claude Opus** / **GPT-4o** / **Fable-5** to reformat JSON, summarize logs, and lint docstrings.
 
 Meanwhile, your production database migrations, security reviews, and payment integrations are getting the same model as your throwaway scripts.
 
@@ -37,7 +120,7 @@ result = gate.route(
     criticality="high",  # or: "critical", "medium", "low"
 )
 
-print(result.model)     # → "claude-sonnet-4-20250514"
+print(result.model)     # → "claude-3-sonnet"
 print(result.provider)  # → "anthropic"
 print(result.reason)    # → "high criticality + auth/security keywords → tier 2"
 ```
@@ -48,14 +131,14 @@ result = gate.route(
     task="Review this payment processing function for edge cases",
     criticality="critical",
 )
-# result.model → your most capable model, always
+# result.model → your most capable tier-0 model, always
 
 # Bulk work — sends to the cheapest model with capacity
 result = gate.route(
     task="Add type hints to these 50 utility functions",
     criticality="low",
 )
-# result.model → "gemini-2.5-flash" (free tier, plenty of capacity)
+# result.model → "llama-3-8b" (free tier, plenty of capacity)
 ```
 
 ## Features
@@ -67,85 +150,18 @@ result = gate.route(
 - **Keyword escalation** — Detects `auth`, `payment`, `security`, `migration`, `prod` in tasks and bumps criticality.
 - **Decision logging** — Every routing decision logged as structured JSONL for cost analysis and ML training.
 - **Fail-open** — If no offload model is available, falls back to your primary model. Never blocks.
-- **Provider-agnostic** — Works with OpenAI, Anthropic, Google, Groq, Together, Fireworks, Cerebras, Mistral, local Ollama, or any OpenAI-compatible proxy.
-- **Zero dependencies** — Pure Python. No heavy frameworks. Installs in < 1 second.
+- **Zero dependencies** — Core engine is pure Python. Installs in < 1 second. (CLI requires `rich`).
 
 ## Install
 
+Base install (engine only):
 ```bash
 pip install llm-gate
 ```
 
-## Quick Start
-
-### 1. Minimal (auto-discover from one endpoint)
-
-```python
-from llm_gate import Gate
-
-gate = Gate(
-    providers={"openrouter": {"base_url": "https://openrouter.ai/api/v1"}},
-    primary_model="anthropic/claude-sonnet-4",
-)
-
-decision = gate.route("Add error handling to this database connector", criticality="high")
-# → Routes to best available model that meets "high" tier
-```
-
-### 2. Multi-provider with config file
-
-```yaml
-# llm-gate.yaml
-primary_model: "anthropic/claude-sonnet-4"
-
-providers:
-  anthropic:
-    base_url: "https://api.anthropic.com/v1"
-    api_key_env: "ANTHROPIC_API_KEY"
-  groq:
-    base_url: "https://api.groq.com/openai/v1"
-    api_key_env: "GROQ_API_KEY"
-  ollama:
-    base_url: "http://localhost:11434/v1"
-
-tiers:
-  critical:
-    keywords: ["payment", "auth", "security", "migration", "production", "deploy"]
-    never_offload: true
-  high:
-    prefer_models: ["claude-sonnet", "gpt-4o", "grok-3"]
-  medium:
-    prefer_models: ["claude-haiku", "gpt-4o-mini", "llama-3.3-70b"]
-  low:
-    prefer_models: ["gemini-flash", "llama-3.1-8b", "qwen-2.5-coder"]
-
-escalation_patterns:
-  - pattern: "(payment|billing|charge|refund|stripe)"
-    min_tier: "critical"
-  - pattern: "(auth|login|token|session|password|jwt)"
-    min_tier: "high"
-  - pattern: "(migration|schema|alter table|deploy)"
-    min_tier: "high"
-```
-
-```python
-from llm_gate import Gate
-
-gate = Gate.from_yaml("llm-gate.yaml")
-decision = gate.route("Format these log lines as CSV", criticality="low")
-```
-
-### 3. As a CLI
-
+Full install (includes elite CLI dashboard):
 ```bash
-# Route a task and print the decision
-llm-gate route "Review this SQL injection fix" --criticality high
-
-# Show discovered models and their tiers
-llm-gate models
-
-# Analyze routing history
-llm-gate stats --last 7d
+pip install llm-gate[cli]
 ```
 
 ## How Routing Works
@@ -173,111 +189,11 @@ Task arrives → Keyword scan → Criticality floor applied
                Decision                       Decision     Decision
 ```
 
-## Decision Logging
-
-Every routing decision is appended to a JSONL log:
-
-```json
-{
-  "ts": "2026-07-11T18:30:00Z",
-  "task_hash": "a1b2c3d4",
-  "task_preview": "Review this SQL injection...",
-  "input_criticality": "high",
-  "effective_criticality": "high",
-  "escalation_reason": null,
-  "model_chosen": "anthropic/claude-sonnet-4",
-  "tier": 2,
-  "provider": "anthropic",
-  "alternatives_considered": ["groq/llama-3.3-70b", "google/gemini-flash"],
-  "quota_headroom_pct": 72.5,
-  "latency_ms": 12,
-  "reason": "high tier, best available model with headroom"
-}
-```
-
-Use this data to:
-- **Analyze spend** — See which tiers consume which models
-- **Train a contextual router** — Feed embeddings + quality scores to learn task-model fit
-- **Debug routing** — Understand why a specific task went to a specific model
-
-## Benchmarks
-
-| Scenario | Without llm-gate | With llm-gate | Savings |
-|----------|-----------------|---------------|---------|
-| 100 mixed dev tasks | $47.20 (all Claude Opus) | $12.80 (routed) | **73%** |
-| CI/CD pipeline (lint + review + deploy) | $8.50/run | $3.10/run | **64%** |
-| Bulk refactoring (200 files) | $156.00 | $28.40 | **82%** |
-
-*Benchmarks from real usage on a 57,000-line Python codebase. Your results will vary by task mix and provider pricing.*
-
-## API Reference
-
-### `Gate`
-
-```python
-Gate(
-    providers: dict[str, ProviderConfig] = None,  # provider name → config
-    primary_model: str = None,                     # model that handles critical tasks
-    config_path: str = None,                       # path to YAML config
-    log_path: str = "llm-gate-decisions.jsonl",    # routing decision log
-    discovery_ttl: int = 60,                       # seconds to cache /v1/models
-)
-```
-
-### `Gate.route()`
-
-```python
-gate.route(
-    task: str,                          # task description or prompt
-    criticality: str = "medium",        # "critical" | "high" | "medium" | "low"
-    context: dict = None,               # optional metadata (file path, language, etc.)
-) -> RoutingDecision
-```
-
-### `RoutingDecision`
-
-```python
-@dataclass
-class RoutingDecision:
-    model: str              # chosen model ID
-    provider: str           # provider name
-    tier: int               # 0 (critical) to 3 (low)
-    reason: str             # human-readable explanation
-    alternatives: list      # other models considered
-    headroom_pct: float     # remaining quota percentage
-    latency_ms: float       # routing decision time
-    escalated: bool         # was criticality bumped by keywords?
-    logged: bool            # was decision written to log?
-```
-
-## Comparison
-
-| Feature | llm-gate | LiteLLM | Martian | OpenRouter |
-|---------|----------|---------|---------|------------|
-| Criticality-based routing | ✅ | ❌ | ✅ | ❌ |
-| Auto model discovery | ✅ | ❌ | ❌ | ❌ |
-| Keyword escalation | ✅ | ❌ | ❌ | ❌ |
-| Quota-aware routing | ✅ | ❌ | ✅ | Partial |
-| Decision logging for ML | ✅ | ❌ | ❌ | ❌ |
-| Self-hosted | ✅ | ✅ | ❌ (SaaS) | ❌ (SaaS) |
-| Zero dependencies | ✅ | ❌ | N/A | N/A |
-| Free | ✅ | ✅ | ❌ | ❌ |
-
 ## Philosophy
 
 1. **Critical code never touches a cheap model.** Payment logic, auth flows, database migrations, and production deployments always go to your best model. No exceptions.
-
 2. **Cheap work never touches an expensive model.** Formatting, linting, type hints, log summarization, and boilerplate generation go to the fastest, cheapest model with capacity.
-
 3. **Fail open, never block.** If every offload model is rate-limited or down, the task goes to your primary model. Work never stops.
-
-4. **No magic, no ML required.** The default router is a simple tier + keyword matcher. It works out of the box. The decision log lets you build an ML router later if you want to.
-
-5. **Zero vendor lock-in.** Works with any OpenAI-compatible endpoint. Swap providers by editing one YAML file.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
