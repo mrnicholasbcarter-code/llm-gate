@@ -186,13 +186,24 @@ def main() -> None:
     # Command: ui
     ui_p = subparsers.add_parser("ui", help="Launch the interactive Streamlit analytics dashboard")
 
-    args = parser.parse_args()
+        # Command: serve
+    serve_p = subparsers.add_parser("serve", help="Launch the FastAPI microservice backend")
+    serve_p.add_argument("--port", type=int, default=8000)
+
+args = parser.parse_args()
 
     if args.command == "setup":
         cmd_setup()
     elif args.command == "route":
         cmd_route(args.task, args.criticality)
-        elif args.command == "ui":
+            elif args.command == "serve":
+        try:
+            import uvicorn
+            console.print(f"[bold green]Starting FastAPI Web Server on port {args.port}...[/bold green]")
+            uvicorn.run("llm_gate.api:app", host="0.0.0.0", port=args.port, reload=False)
+        except ImportError:
+            console.print("[bold red]Missing Server dependencies.[/bold red] Install with: pip install llm-gate[server]")
+elif args.command == "ui":
         try:
             import streamlit
             import subprocess

@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  llm-gate:
+    build: .
+    container_name: llm-gate-server
+    ports:
+      - "8000:8000" # FastAPI Backend
+      - "8501:8501" # Streamlit Web UI Dashboard
+    environment:
+      - LLMGATE_DATA_DIR=/app/data
+      - LLMGATE_MAX_PENDING_MIGRATIONS=0
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - gate_data:/app/data
+
+volumes:
+  gate_data:
