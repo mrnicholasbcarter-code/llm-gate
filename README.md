@@ -189,6 +189,19 @@ Task arrives → Keyword scan → Criticality floor applied
                Decision                       Decision     Decision
 ```
 
+
+## 🔌 Ecosystem Integrations 
+
+`llm-gate` isn't just a CLI; it's a universal intercept layer for the entire AI agent ecosystem. We provide drop-in hooks for:
+
+- [Claude Code (.claude/hooks/userPromptSubmit.sh)](docs/integrations/claude-code-hook.md)
+- [Antigravity / agy (Bash wrappers)](docs/integrations/antigravity.md)
+- [Jcode (Swarm routing intercept)](docs/integrations/jcode.md)
+- [Codex & Hermes (Transparent binary wrappers)](docs/integrations/codex-hermes.md)
+- [Cursor / IDEs (via FastAPI server)](docs/integrations/cursor-vscode.md)
+
+---
+
 ## Philosophy
 
 1. **Critical code never touches a cheap model.** Payment logic, auth flows, database migrations, and production deployments always go to your best model. No exceptions.
