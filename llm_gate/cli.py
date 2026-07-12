@@ -95,7 +95,7 @@ def cmd_route(task: str, criticality: str, terse: bool = False) -> None:
             return
             
         with console.status("[bold green]Evaluating network & heuristics...", spinner="dots"):
-        dec = gate.route(task, criticality)
+            dec = gate.route(task, criticality)
 
     # Format output panel
     tier_colors = {0: "red", 1: "magenta", 2: "yellow", 3: "green"}
