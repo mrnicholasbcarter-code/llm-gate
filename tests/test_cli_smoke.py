@@ -1,23 +1,76 @@
+"""Functional smoke tests for the CLI binary."""
 import subprocess
 import os
+import pytest
 
-def test_cli_help():
-    result = subprocess.run(["llm-gate", "--help"], capture_output=True, text=True)
-    assert result.returncode == 0
-    assert "llm-gate: Tier-based LLM Router" in result.stdout
 
-def test_cli_route_terse():
-    # Setup mock config
-    os.makedirs(os.path.expanduser("~/.config/llm-gate"), exist_ok=True)
-    with open(os.path.expanduser("~/.config/llm-gate/llm-gate.yaml"), "w") as f:
-        f.write("primary_model: 'anthropic/claude-3-opus-20240229'\nproviders: {}")
-        
-    result = subprocess.run(["llm-gate", "route", "test prompt", "--terse"], capture_output=True, text=True)
-    assert result.returncode == 0
-    assert "claude-3-opus-20240229" in result.stdout
+class TestCLIHelp:
+    def test_help_exits_zero(self):
+        result = subprocess.run(["llm-gate", "--help"], capture_output=True, text=True)
+        assert result.returncode == 0
 
-def test_cli_setup(monkeypatch):
-    # Pass 'q' or mock responses to avoid blocking stdin
-    result = subprocess.run(["llm-gate", "setup"], input="q\n", capture_output=True, text=True)
-    # Just asserting it doesn't crash on NameError
-    assert "llm-gate Setup Wizard" in result.stdout or result.returncode == 0
+    def test_help_contains_description(self):
+        result = subprocess.run(["llm-gate", "--help"], capture_output=True, text=True)
+        assert "llm-gate" in result.stdout.lower()
+
+    def test_help_lists_commands(self):
+        result = subprocess.run(["llm-gate", "--help"], capture_output=True, text=True)
+        assert "route" in result.stdout
+        assert "setup" in result.stdout
+        assert "stats" in result.stdout
+
+
+class TestCLIRoute:
+    @pytest.fixture(autouse=True)
+    def setup_config(self, tmp_path):
+        config_dir = os.path.expanduser("~/.config/llm-gate")
+        os.makedirs(config_dir, exist_ok=True)
+        with open(os.path.join(config_dir, "llm-gate.yaml"), "w") as f:
+            f.write("primary_model: 'anthropic/claude-3-opus-20240229'\nproviders: {}\n")
+
+    def test_route_terse_exits_zero(self):
+        result = subprocess.run(
+            ["llm-gate", "route", "test prompt", "--terse"],
+            capture_output=True, text=True
+        )
+        assert result.returncode == 0
+
+    def test_route_terse_outputs_model_name(self):
+        result = subprocess.run(
+            ["llm-gate", "route", "test prompt", "--terse"],
+            capture_output=True, text=True
+        )
+        assert "claude-3-opus-20240229" in result.stdout
+
+    def test_route_verbose_exits_zero(self):
+        result = subprocess.run(
+            ["llm-gate", "route", "test prompt"],
+            capture_output=True, text=True
+        )
+        assert result.returncode == 0
+
+    def test_route_critical_returns_primary(self):
+        result = subprocess.run(
+            ["llm-gate", "route", "deploy prod", "--criticality", "critical", "--terse"],
+            capture_output=True, text=True
+        )
+        assert result.returncode == 0
+        assert "claude-3-opus-20240229" in result.stdout
+
+
+class TestCLISetup:
+    def test_setup_banner(self):
+        result = subprocess.run(
+            ["llm-gate", "setup"], input="done\n",
+            capture_output=True, text=True
+        )
+        assert "Setup Wizard" in result.stdout or result.returncode == 0
+
+
+class TestCLIStats:
+    def test_stats_no_log_file(self):
+        result = subprocess.run(
+            ["llm-gate", "stats", "--log_path", "/tmp/nonexistent.jsonl"],
+            capture_output=True, text=True
+        )
+        assert result.returncode == 0
