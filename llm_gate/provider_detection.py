@@ -11,12 +11,14 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, TypedDict
+from typing import Any, TypedDict
 
 import httpx
 import yaml
+
 
 class ServerInfo(TypedDict, total=False):
     cli_name: str
