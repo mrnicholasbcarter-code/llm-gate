@@ -219,3 +219,27 @@ Task arrives → Keyword scan → Criticality floor applied
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## System Flow Pipeline
+
+`llm-gate` intercepts prompts, applies local text-classification heuristics to determine prompt complexity, and immediately falls back across a provider matrix to ensure high availability.
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant Gate as llm-gate Heuristic Engine
+    participant Fast as Groq/Flash
+    participant Heavy as Anthropic/Gemini
+    
+    App->>Gate: "Format this JSON payload" (Tier 3)
+    Gate->>Fast: Forward to Llama-3-8b (Cost: $0.05/M)
+    Fast-->>Gate: Payload
+    Gate-->>App: Return
+    
+    App->>Gate: "Architect a React Zustand store" (Tier 0)
+    Gate->>Heavy: Forward to Claude 3.5 Sonnet
+    alt 429 Rate Limit
+        Heavy--XGate: Error
+        Gate->>Heavy: Fallback: Gemini 1.5 Pro
+    end
+```
