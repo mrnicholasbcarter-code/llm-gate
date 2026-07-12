@@ -99,9 +99,10 @@ class TestGateWithProviders:
     def test_routes_to_provider_when_available(self, mock_select, mock_fetch, mock_log, mock_scan):
         mock_model = MagicMock()
         mock_model.id = "groq/llama-3"
-        mock_model.tier = 3
+        mock_model.capability_tier = 3
+        mock_model.provider = "groq"
         mock_fetch.return_value = [mock_model]
-        mock_select.return_value = ("groq", mock_model)
+        mock_select.return_value = (mock_model, [])
 
         providers = {"groq": ProviderConfig(base_url="https://api.groq.com/openai/v1")}
         gate = Gate(providers=providers)
@@ -115,7 +116,7 @@ class TestGateWithProviders:
     @patch("llm_gate.gate.select_best_model")
     def test_falls_back_when_no_candidate_matches(self, mock_select, mock_fetch, mock_log, mock_scan):
         mock_fetch.return_value = []
-        mock_select.return_value = (None, None)
+        mock_select.return_value = (None, [])
 
         providers = {"groq": ProviderConfig(base_url="https://api.groq.com/openai/v1")}
         gate = Gate(primary_model="anthropic/claude-3-opus-20240229", providers=providers)

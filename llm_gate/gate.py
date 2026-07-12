@@ -69,17 +69,19 @@ class Gate:
 
         # 4. Discover candidates from providers
         candidates = []
+        provider_configs = {}
         for name, cfg in self.providers.items():
             for m in fetch_models(name, cfg, self.discovery_ttl):
-                candidates.append((name, m, cfg))
+                candidates.append(m)
+                provider_configs[name] = cfg
 
         # 5. Select best model that fits the tier
         if candidates:
-            best_name, best_model = select_best_model(candidates, final_tier)
-            if best_name:
+            best_model, alts = select_best_model(candidates, final_tier, provider_configs)
+            if best_model:
                 dec = RoutingDecision(
-                    model=best_model.id, provider=best_name,
-                    tier=best_model.tier, reason=f"tier {final_tier} routed",
+                    model=best_model.id, provider=best_model.provider,
+                    tier=best_model.capability_tier, reason=f"tier {final_tier} routed",
                     escalated=escalated, escalation_reason=esc_reason
                 )
                 log_decision(dec, task, self.log_path, self.log_full_task)
