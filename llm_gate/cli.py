@@ -188,8 +188,16 @@ def main() -> None:
 ")
             sys.exit(1)
     elif args.command == "serve":
-        from llm_gate.api import start_server
-        start_server(args.port)
+        try:
+            from llm_gate.api import start_server
+            start_server(args.port)
+        except ImportError:
+            console.print("[bold red]❌ Server dependencies not found.[/bold red]")
+            console.print("Please install the FastAPI server suite:")
+            console.print("
+  [bold cyan]pipx install "llm-gate[all] @ git+https://github.com/mrnicholasbcarter-code/llm-gate.git" --force[/bold cyan]
+")
+            sys.exit(1)
     else:
         parser.print_help()
 
