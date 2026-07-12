@@ -1,4 +1,5 @@
 import os
+import uvicorn
 from contextlib import asynccontextmanager
 try:
     from fastapi import FastAPI, HTTPException, Depends
@@ -43,3 +44,14 @@ async def route_task(req: RouteRequest):
 @app.get("/health")
 async def health():
     return {"status": "healthy", "engine": "llm-gate"}
+
+
+@app.post("/route")
+async def route_task_alias(req: RouteRequest):
+    """Convenience alias matching the integration test client path."""
+    return await route_task(req)
+
+
+def start_server(port: int = 8000, host: str = "0.0.0.0") -> None:
+    """Boot the uvicorn server for the llm-gate microservice."""
+    uvicorn.run(app, host=host, port=port)

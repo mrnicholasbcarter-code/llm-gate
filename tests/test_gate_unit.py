@@ -160,3 +160,55 @@ class TestGateWithProviders:
         assert dec.model == "anthropic/claude-3-opus-20240229"
         assert dec.provider == "primary"
         assert "fallback" in dec.reason
+
+    @patch("llm_gate.gate.scan", return_value=(None, ""))
+    @patch("llm_gate.gate.log_decision")
+    @patch("urllib.request.urlopen")
+    def test_fallback_on_403_forbidden_from_anthropic(self, mock_urlopen, mock_log, mock_scan):
+        """An explicit Anthropic 403 (forbidden / blocked API key) must not crash the
+        gate: discovery fails closed and routing falls back to the primary model."""
+        from urllib.error import HTTPError
+        import llm_gate.discovery
+        llm_gate.discovery._CACHE.clear()
+
+        mock_urlopen.side_effect = HTTPError(
+            "https://api.anthropic.com/v1/models", 403, "Forbidden", {}, None
+        )
+
+        # A real Anthropic provider entry whose discovery call is mocked to 403.
+        providers = {"anthropic": ProviderConfig(base_url="https://api.anthropic.com/v1")}
+        gate = Gate(primary_model="anthropic/claude-3-opus-20240229", providers=providers)
+
+        dec = gate.route("do something sensitive", criticality="low")
+
+        # Discovery raised 403 -> no candidates -> safe fallback to primary.
+        assert dec.model == "anthropic/claude-3-opus-20240229"
+        assert dec.provider == "primary"
+        assert "fallback" in dec.reason
+
+    @patch("llm_gate.gate.scan", return_value=(None, ""))
+    @patch("llm_gate.gate.log_decision")
+    @patch("urllib.request.urlopen")
+    def test_fallback_on_403_connection_error_from_anthropic(self, mock_urlopen, mock_log, mock_scan):
+        """An Anthropic 403 surfaced as a connection-level error (e.g. proxy block)
+        must also fall back to the primary model without raising."""
+        import urllib.error
+        import llm_gate.discovery
+        llm_gate.discovery._CACHE.clear()
+
+        # Some stacks wrap a 403 in a URLError/ConnectionError carrying the code.
+        err = urllib.error.URLError("403 Forbidden")
+        try:
+            err.code = 403  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
+        mock_urlopen.side_effect = err
+
+        providers = {"anthropic": ProviderConfig(base_url="https://api.anthropic.com/v1")}
+        gate = Gate(primary_model="anthropic/claude-3-opus-20240229", providers=providers)
+
+        dec = gate.route("do something sensitive", criticality="medium")
+
+        assert dec.model == "anthropic/claude-3-opus-20240229"
+        assert dec.provider == "primary"
+        assert "fallback" in dec.reason
