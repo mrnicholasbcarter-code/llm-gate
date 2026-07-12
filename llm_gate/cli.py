@@ -181,53 +181,36 @@ def main() -> None:
     # Command: route
     route_p = subparsers.add_parser("route", help="Route a single prompt/task")
     route_p.add_argument("task", help="Task description or prompt text")
-        route_p.add_argument("--terse", action="store_true", help="Output ONLY the target model string (for bash piping)")
-route_p.add_argument("--criticality", default="medium", choices=["critical", "high", "medium", "low"], help="Requested baseline criticality")
+    route_p.add_argument("--terse", action="store_true", help="Output ONLY the target model string (for bash piping)")
+    route_p.add_argument("--criticality", default="medium", choices=["critical", "high", "medium", "low"], help="Requested baseline criticality")
 
     # Command: stats
     stats_p = subparsers.add_parser("stats", help="View routing analytics and cost savings dashboard")
     stats_p.add_argument("--log_path", default="llm-gate-decisions.jsonl", help="Path to decision log")
-
     
     # Command: ui
     ui_p = subparsers.add_parser("ui", help="Launch the interactive Streamlit analytics dashboard")
 
-        # Command: serve
+    # Command: serve
     serve_p = subparsers.add_parser("serve", help="Launch the FastAPI microservice backend")
     serve_p.add_argument("--port", type=int, default=8000)
 
-args = parser.parse_args()
-
+    args = parser.parse_args()
+    
     if args.command == "setup":
-        cmd_setup()
+        run_setup()
     elif args.command == "route":
-        cmd_route(args.task, args.criticality, getattr(args, "terse", False))
-            elif args.command == "serve":
-        try:
-            import uvicorn
-            console.print(f"[bold green]Starting FastAPI Web Server on port {args.port}...[/bold green]")
-            uvicorn.run("llm_gate.api:app", host="0.0.0.0", port=args.port, reload=False)
-        except ImportError:
-            console.print("[bold red]Missing Server dependencies.[/bold red] Install with: pip install llm-gate[server]")
-elif args.command == "ui":
-        try:
-            import streamlit
-            import subprocess
-            from pathlib import Path
-            dash_path = Path(__file__).parent / "dashboard.py"
-            console.print("[bold green]Launching Streamlit Dashboard...[/bold green]")
-            subprocess.run(["streamlit", "run", str(dash_path)])
-        except ImportError:
-            console.print("[bold red]Missing UI dependencies.[/bold red] Install with: pip install llm-gate[ui]")
-elif args.command == "stats":
-        cmd_stats(args.log_path)
+        handle_route(args.task, args.criticality, getattr(args, "terse", False))
+    elif args.command == "stats":
+        handle_stats(args.log_path)
+    elif args.command == "ui":
+        from .dashboard import start_ui
+        start_ui()
+    elif args.command == "serve":
+        from .api import start_server
+        start_server(args.port)
     else:
-        console.print(Panel.fit(
-            "[bold white]llm-gate[/bold white] [cyan]v0.1.0[/cyan]\n\n"
-            "Run [bold green]llm-gate --help[/bold green] for available commands.\n"
-            "Recommended first step: [bold yellow]llm-gate setup[/bold yellow]",
-            border_style="cyan"
-        ))
+        parser.print_help()
 
 if __name__ == "__main__":
     main()
