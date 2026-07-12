@@ -8,12 +8,12 @@ set -e
 #   --lite                  Do not install the rich TUI CLI elements (engine only)
 
 PRIMARY_MODEL="anthropic/claude-3-opus-20240229"
-INSTALL_TARGET="llm-gate[rich,pyyaml]"
+INSTALL_TARGET="llm-gate[ci] @ git+https://github.com/mrnicholasbcarter-code/llm-gate.git"
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --primary-model) PRIMARY_MODEL="$2"; shift ;;
-        --lite) INSTALL_TARGET="llm-gate" ;;
+        --lite) INSTALL_TARGET="git+https://github.com/mrnicholasbcarter-code/llm-gate.git" ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
