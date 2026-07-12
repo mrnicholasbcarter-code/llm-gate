@@ -183,7 +183,7 @@ def main() -> None:
         except ImportError:
             console.print("[bold red]❌ UI dependencies not found.[/bold red]")
             console.print("Please install the UI package suite:")
-            console.print("  [bold cyan]pipx install "llm-gate[all] @ git+https://github.com/mrnicholasbcarter-code/llm-gate.git" --force[/bold cyan]")
+            console.print('  [bold cyan]pipx install "llm-gate[all] @ git+https://github.com/mrnicholasbcarter-code/llm-gate.git" --force[/bold cyan]')
             sys.exit(1)
     elif args.command == "serve":
         try:
@@ -192,7 +192,7 @@ def main() -> None:
         except ImportError:
             console.print("[bold red]❌ Server dependencies not found.[/bold red]")
             console.print("Please install the FastAPI server suite:")
-            console.print("  [bold cyan]pipx install "llm-gate[all] @ git+https://github.com/mrnicholasbcarter-code/llm-gate.git" --force[/bold cyan]")
+            console.print('  [bold cyan]pipx install "llm-gate[all] @ git+https://github.com/mrnicholasbcarter-code/llm-gate.git" --force[/bold cyan]')
             sys.exit(1)
     else:
         parser.print_help()
