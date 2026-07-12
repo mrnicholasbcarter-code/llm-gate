@@ -471,4 +471,4 @@ These are explicitly out of scope for the initial release:
 
 ## 13. Origin
 
-This library was extracted from a production 57,000-line algorithmic trading system where routing LLM tasks across 15+ providers reduced API costs by ~60% while maintaining code quality for critical money-path operations. The original system (closed-source) has been routing thousands of decisions daily since early 2026.
+This library was extracted from a production event-driven algorithmic trading system where routing LLM tasks across 15+ providers reduced API costs by ~60% while maintaining code quality for critical money-path operations. The original system (closed-source) has been routing thousands of decisions daily since early 2026.
