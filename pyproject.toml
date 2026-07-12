@@ -7,11 +7,9 @@ name = "llm-gate"
 version = "0.1.0"
 description = "Route LLM tasks by criticality. Never send prod code to a cheap model."
 readme = "README.md"
-license = "MIT"
+license = {text = "MIT"}
 requires-python = ">=3.10"
-authors = [
-    { name = "Nicholas Carter" },
-]
+authors = [{name = "Nicholas Carter"}]
 keywords = ["llm", "routing", "ai", "cost-optimization", "openai", "anthropic", "multi-model"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -21,7 +19,6 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Typing :: Typed",
@@ -30,7 +27,7 @@ classifiers = [
 [project.optional-dependencies]
 server = ["fastapi>=0.109.0", "uvicorn>=0.27.0"]
 ui = ["streamlit>=1.30", "plotly>=5.18", "pandas>=2.0"]
-ci = ["rich>=13.0.0", "pyyaml>=6.0.0"]
+ci = ["rich>=13.0.0", "pyyaml>=6.0"]
 all = ["streamlit", "plotly", "pandas", "rich", "pyyaml"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.8", "mypy>=1.13"]
 
@@ -43,15 +40,25 @@ Repository = "https://github.com/mrnicholasbcarter-code/llm-gate"
 Issues = "https://github.com/mrnicholasbcarter-code/llm-gate/issues"
 
 [tool.ruff]
-target-version = "py310"
 line-length = 100
-
-[tool.ruff.lint]
+target-version = "py310"
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "RUF"]
+ignore = ["E501", "B008"]
+per-file-ignores = { "tests/*" = ["S101"] }
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.mypy]
 python_version = "3.10"
-strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
