@@ -21,6 +21,9 @@ if not os.path.exists(log_path):
 @st.cache_data(ttl=5)
 def load_data(path):
     records = []
+    import os
+    if not os.path.exists(path):
+        return pd.DataFrame()
     with open(path, "r") as f:
         for line in f:
             if line.strip():

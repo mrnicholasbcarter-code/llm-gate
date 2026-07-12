@@ -178,8 +178,16 @@ def main() -> None:
         cmd_stats(args.log_path)
     elif args.command == "ui":
         try:
-            from llm_gate.dashboard import start_ui
-            start_ui()
+            import streamlit
+            import subprocess, sys, os
+            # Resolve the path dynamically without executing the file
+            import importlib.util
+            spec = importlib.util.find_spec("llm_gate.dashboard")
+            if not spec or not spec.origin:
+                console.print("[bold red]❌ Dashboard module missing.[/bold red]")
+                sys.exit(1)
+            subprocess.run([sys.executable, "-m", "streamlit", "run", spec.origin])
+        
         except ImportError:
             console.print("[bold red]❌ UI dependencies not found.[/bold red]")
             console.print("Please install the UI package suite:")
