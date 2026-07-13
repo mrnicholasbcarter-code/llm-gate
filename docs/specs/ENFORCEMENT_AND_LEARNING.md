@@ -77,11 +77,11 @@ The adapter MUST NOT read `ruvector.db`, Ruflo databases, OmniRoute SQLite stora
 - No raw prompt or completion is sent to learning sinks by default.
 - Redaction occurs before any external process invocation.
 - Learning calls are asynchronous and bounded by a small latency budget.
-- A failed learning process never fails the user request.
+- A failed learning process never corrupts or crashes an in-flight user request. It does flip managed-intelligence readiness to not-ready and records the failure. The active profile then either rejects protected work or explicitly continues in visible degraded development mode.
 - A learned model cannot override a hard gate, denied model, quality floor, or privacy policy.
 - New policies start with a cold-start deterministic mode.
 - Training data is append-only, versioned, and exportable for audit.
-- User opt-out disables all learning sinks and removes prompt-derived features from events.
+- User opt-out disables new prompt-derived collection and training for the opted-out scope. Deterministic policy intelligence continues to run, and any adaptive snapshot used must already be approved for that privacy scope. A global opt-out that makes the required managed backend unavailable leaves the production profile not-ready rather than silently pretending that intelligence is still active.
 
 ### 7. Ruflo guidance integration
 

@@ -16,6 +16,8 @@
 - [ ] The deterministic policy and capability safety floor runs even during cold start or adaptive-backend failure.
 - [ ] The production profile requires healthy Ruflo/RuVector managed intelligence before `/ready` reports ready.
 - [ ] Development-only degraded mode is explicit, visible in readiness and decision events, and cannot be advertised as production-ready.
+- [ ] Adaptive-backend failure does not crash in-flight requests, but flips readiness and rejects protected work unless explicit degraded development mode is active.
+- [ ] Privacy opt-out removes new prompt-derived learning data without disabling deterministic safety intelligence.
 - [ ] Ruflo/RuVector adapter calls use documented CLI/API surfaces, bounded timeouts, redacted events, and no private database reads.
 - [ ] Adaptive suggestions are advisory only and are proven unable to bypass denial, privacy, capability, or protected-task gates.
 
