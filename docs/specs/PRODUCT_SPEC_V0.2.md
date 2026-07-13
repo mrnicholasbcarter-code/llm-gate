@@ -149,3 +149,15 @@ The explain endpoint MUST show policy version, hard gates, required capabilities
 ## 8. Release definition
 
 This specification is not complete until the implementation satisfies every gate in `RELEASE_ACCEPTANCE.md`, including live smoke tests against a mock upstream and a configured OmniRoute endpoint, security checks, package validation, and a compatibility matrix covering at least one OpenAI-compatible client library and one raw HTTP client.
+
+## 9. Future differentiator: evidence-backed suggestions
+
+The post-v0.2 roadmap SHOULD add a separate `SuggestionService` that proposes useful next actions from validated historical routing, outcome, policy, and repository-work patterns. Examples include:
+
+- a model family that repeatedly outperforms alternatives for a specific capability/task bucket;
+- a recurring fallback, timeout, or quality failure that deserves a policy or availability change;
+- a missing test, benchmark, example, or documentation artifact inferred from repeated work outcomes;
+- a safe cost-quality or latency-quality optimization supported by enough observations;
+- a newly observed capability or integration opportunity worth evaluating.
+
+Suggestions MUST be asynchronous, explicitly labeled as suggestions, evidence-backed, deduplicated, expiring, and human/agent-approved before they change configuration or code. The service MUST NOT silently rewrite policies, auto-promote models, execute commands, or treat neural similarity as proof. It SHOULD use aggregated redacted events and validated Ruflo/RuVector patterns rather than raw prompts or private database tables. A suggestion failure MUST never affect request routing or readiness.

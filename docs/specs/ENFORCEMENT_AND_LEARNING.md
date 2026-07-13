@@ -98,3 +98,7 @@ Project bylaws should be compiled into a policy bundle during release/setup, not
 ### 8. Observability
 
 Expose counters for policy denials, escalations, unknown catalog rows, selected model families, fallback rates, learning adapter errors, quality feedback, and saved frontier calls. Do not expose raw prompts or credentials.
+
+### 9. Future suggestion service
+
+Suggestion generation is intentionally separate from mandatory request intelligence. It may consume validated, redacted outcome aggregates and RuVector/Ruflo patterns to produce ranked opportunities with evidence, confidence, expected impact, novelty, expiry, and a proposed next experiment. It is non-blocking and advisory. No suggestion may mutate routing policy, invoke tools, or alter a repository without explicit approval and a new tracked work item.
