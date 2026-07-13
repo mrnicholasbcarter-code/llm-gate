@@ -61,7 +61,7 @@ async def route_task_alias(req: RouteRequest) -> dict[str, Any]:
     return await route_task(req)
 
 
-def start_server(port: int = 8000, host: str = "0.0.0.0") -> None:
+def start_server(port: int = 8000, host: str = "0.0.0.0") -> None:  # nosec B104
     """Boot the uvicorn server for the llm-gate microservice."""
     import uvicorn
 

@@ -30,6 +30,7 @@ class ServerInfo(TypedDict, total=False):
     install_hint: str
     github: str
 
+
 # Known local LLM servers and their default endpoints
 LOCAL_SERVERS: dict[str, ServerInfo] = {
     "ollama": {
