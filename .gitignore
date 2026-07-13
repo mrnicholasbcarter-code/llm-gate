@@ -27,3 +27,6 @@ node_build.log
 build.log
 patch_*.py
 *.bak
+.coverage
+coverage.xml
+*.jsonl
