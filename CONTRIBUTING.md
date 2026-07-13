@@ -14,23 +14,25 @@ pip install -e '.[dev]'
 ## Running Tests
 
 ```bash
-pytest
-ruff check .
-mypy llm_gate/
+.venv/bin/python -m pytest
+.venv/bin/python -m ruff check .
+.venv/bin/python -m mypy llm_gate --strict
 ```
 
 ## Pull Requests
 
 1. Fork the repo and create a branch from `main`.
 2. Add tests for any new functionality.
-3. Ensure `pytest`, `ruff check`, and `mypy` all pass.
+3. Ensure the project-environment `pytest`, Ruff, and strict mypy commands all pass.
 4. Write a clear PR description explaining what and why.
 
 ## Design Principles
 
 - **Zero dependencies.** The core library uses only the Python standard library.
-- **Fail open.** If routing fails, fall back to the primary model. Never block work.
-- **No magic.** The default router is a deterministic tier + keyword matcher. ML is optional.
+- **Safety first.** Deterministic policy and capability gates always apply. Managed adaptive
+  intelligence is required for production readiness and cannot override hard safety gates.
+- **Explicit degradation.** A development-only degraded mode may be used when the managed
+  intelligence backend is unavailable. It must be visible in readiness and decision metadata.
 - **Decision transparency.** Every routing decision is logged and explainable.
 
 ## Code Style
