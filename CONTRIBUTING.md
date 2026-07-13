@@ -8,7 +8,7 @@ Thanks for your interest. Here's how to contribute.
 git clone https://github.com/mrnicholasbcarter-code/llm-gate.git
 cd llm-gate
 python -m venv .venv && source .venv/bin/activate
-pip install -e '.[dev]'
+pip install -e '.[dev,server]'
 ```
 
 ## Running Tests
