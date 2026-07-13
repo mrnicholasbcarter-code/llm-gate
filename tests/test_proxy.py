@@ -41,7 +41,11 @@ class RecordingTransport(httpx.AsyncBaseTransport):
         if request.url.path.endswith("/models"):
             return httpx.Response(
                 200,
-                headers={"content-type": "application/json", "x-upstream": "catalog"},
+                headers={
+                    "content-type": "application/json",
+                    "content-length": "999",
+                    "x-upstream": "catalog",
+                },
                 json={
                     "object": "list",
                     "data": [
@@ -172,6 +176,7 @@ def test_models_endpoint_forwards_upstream_catalog(monkeypatch) -> None:
     assert readiness.json()["status"] == "ready"
     assert response.status_code == 200
     assert response.headers["x-upstream"] == "catalog"
+    assert int(response.headers["content-length"]) == len(response.content)
     assert response.json()["data"][0]["id"] == "selected-model"
     assert len(response.json()["data"]) == 1
     assert response.json()["data"][0]["llm_gate"] == {

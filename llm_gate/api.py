@@ -134,6 +134,12 @@ def _as_response(result: BufferedUpstreamResponse) -> Response:
     )
 
 
+def _headers_for_body(result: BufferedUpstreamResponse) -> dict[str, str]:
+    headers = dict(result.headers)
+    headers.pop("content-length", None)
+    return headers
+
+
 @app.get("/v1/models")
 async def list_models() -> Response:
     """Return a locally filtered catalog with conservative availability metadata."""
@@ -148,7 +154,9 @@ async def list_models() -> Response:
     )
     filtered_body = normalize_catalog(result.body, allowlist=allowlist, denylist=denylist)
     return Response(
-        content=filtered_body, status_code=result.status_code, headers=dict(result.headers)
+        content=filtered_body,
+        status_code=result.status_code,
+        headers=_headers_for_body(result),
     )
 
 
