@@ -83,10 +83,10 @@ CENTRALIZED_ROUTERS: dict[str, ServerInfo] = {
     "9router": {
         "repo": "1jehuang/9router",
         "description": "Local multi-provider router with OpenAI-compatible API",
-        "default_base_url": "http://localhost:20132/v1",
+        "default_base_url": "http://localhost:20128/v1",
         "models_endpoint": "/models",
-        "detect_running": lambda: _check_port(20132),
-        "install_hint": "pipx install omniroute",
+        "detect_running": lambda: _check_port(20128) or _check_port(20132),
+        "install_hint": "npm install -g 9router",
         "github": "https://github.com/1jehuang/9router",
     },
     "omniroute": {
@@ -94,8 +94,8 @@ CENTRALIZED_ROUTERS: dict[str, ServerInfo] = {
         "description": "Universal LLM API router with load balancing",
         "default_base_url": "http://localhost:20132/v1",
         "models_endpoint": "/models",
-        "detect_running": lambda: _check_port(20132),
-        "install_hint": "pipx install omniroute",
+        "detect_running": lambda: _check_port(20132) or _check_port(20128),
+        "install_hint": "npm install -g omniroute",
         "github": "https://github.com/NeuronZero/omniroute",
     },
     "openrouter": {
@@ -372,13 +372,30 @@ def detect_centralized_routers() -> list[DetectedProvider]:
     detected = []
 
     for router_id, info in CENTRALIZED_ROUTERS.items():
-        server_running = info["detect_running"]()
+        base_url = info["default_base_url"]
+        server_running = False
+
+        if router_id == "omniroute":
+            if _check_port(20132):
+                base_url = "http://localhost:20132/v1"
+                server_running = True
+            elif _check_port(20128):
+                base_url = "http://localhost:20128/v1"
+                server_running = True
+        elif router_id == "9router":
+            if _check_port(20128):
+                base_url = "http://localhost:20128/v1"
+                server_running = True
+            elif _check_port(20132):
+                base_url = "http://localhost:20132/v1"
+                server_running = True
+        else:
+            server_running = info["detect_running"]()
+
         cli_available = _which(router_id) is not None
 
         if cli_available or server_running:
             models = []
-            base_url = info["default_base_url"]
-
             if server_running:
                 models = _fetch_models_from_server(base_url, info.get("models_endpoint", "/models"))
 
@@ -573,7 +590,7 @@ def format_detection_report(result: DetectionResult, verbose: bool = False) -> s
         lines.append("    This makes llm-gate actually useful for routing between tiers.")
         lines.append("")
         lines.append("    Quick start:")
-        lines.append("      pipx install 9router")
+        lines.append("      npm install -g 9router")
         lines.append("      9router serve  # Runs on http://localhost:20128/v1")
         lines.append("      llm-gate setup  # Will auto-detect omniroute")
     elif has_router:
@@ -588,7 +605,7 @@ def format_detection_report(result: DetectionResult, verbose: bool = False) -> s
 
     if not has_local and not has_cloud and not has_router:
         lines.append("  • No providers detected. Get started with:")
-        lines.append("      pipx install omniroute && omniroute serve")
+        lines.append("      npm install -g omniroute && omniroute serve")
         lines.append("    Or install a local server:")
         lines.append("      curl -fsSL https://ollama.com/install.sh | sh")
         lines.append("      ollama serve &")

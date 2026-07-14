@@ -29,15 +29,32 @@ def _print_detection_banner() -> None:
     )
 
 
+def select_from_list(prompt_text: str, options: list[str], default: str | None = None) -> str:
+    """Prompt the user to select from a list of options."""
+    for i, opt in enumerate(options, 1):
+        console.print(f"  [green]{i}[/]: {opt}")
+    while True:
+        choice = Prompt.ask(prompt_text, default=default).strip()
+        try:
+            val = int(choice)
+            if 1 <= val <= len(options):
+                return options[val - 1]
+        except ValueError:
+            if choice in options:
+                return choice
+        console.print("[yellow]Invalid choice. Please enter the number or the exact name.[/]")
+
+
 def cmd_setup() -> None:
     """Interactive setup wizard."""
     # First, run auto-detection to show user what's available
     _print_detection_banner()
+    detected_result = None
     try:
         from llm_gate.provider_detection import detect_all_providers, format_detection_report
 
-        result = detect_all_providers()
-        console.print(format_detection_report(result, verbose=False))
+        detected_result = detect_all_providers()
+        console.print(format_detection_report(detected_result, verbose=False))
     except Exception as e:
         console.print(f"[yellow]Detection skipped: {e}[/yellow]")
 
@@ -49,47 +66,131 @@ def cmd_setup() -> None:
     )
 
     config: dict[str, Any] = {}
-    config["primary_model"] = Prompt.ask(
-        "[bold]Primary model[/bold] (Tier-0, never offloaded)",
-        default="anthropic/claude-3-opus-20240229",
-    )
+    use_auto = False
 
-    config["providers"] = {}
-    while True:
-        provider_name = Prompt.ask(
-            "\n[bold]Add a provider[/bold] (name, or 'done' to finish)", default="done"
-        )
-        if provider_name.lower() == "done":
-            break
-        base_url = Prompt.ask(f"  Base URL for {provider_name}")
-        api_key_env = Prompt.ask(f"  API key env var for {provider_name}", default="")
-        config["providers"][provider_name] = {
-            "base_url": base_url,
-            "api_key_env": api_key_env or None,
-        }
+    running_providers = []
+    if detected_result:
+        # Get all providers that are running or have configured keys
+        running_providers = [
+            p
+            for p in detected_result.all_providers()
+            if p.server_running
+            or (p.type in ("cli_provider", "cloud_api") and p.api_key_configured)
+        ]
 
-    # Offer to use detected providers
-    try:
-        from llm_gate.provider_detection import detect_all_providers, generate_llm_gate_config
-
-        result = detect_all_providers()
-        suggested = generate_llm_gate_config(result)
-        if suggested.get("providers"):
-            console.print(
-                "\n[bold cyan]Based on detection, you could use these providers:[/bold cyan]"
+    # Pre-select based on detection if running in automated test/input context where "done" or empty is passed
+    if running_providers:
+        console.print("\n[bold cyan]Auto-detection found active providers![/bold cyan]")
+        try:
+            should_auto = Prompt.ask(
+                "Would you like to auto-configure llm-gate using a detected provider?",
+                default="y",
             )
-            for name, cfg in suggested["providers"].items():
-                console.print(f"  • {name}: {cfg.get('base_url', 'N/A')}")
-            if (
-                Prompt.ask("\nUse detected providers as starting point?", default="y")
-                .lower()
-                .startswith("y")
-            ):
-                config["providers"] = suggested["providers"]
-                config["primary_model"] = suggested.get("primary_model", config["primary_model"])
-    except Exception:
-        pass
+            if should_auto.lower().startswith("y"):
+                use_auto = True
 
+                # Select provider
+                provider_names = [
+                    f"{p.name} ({p.id}) - {p.base_url or 'API Key Configuration'}"
+                    for p in running_providers
+                ]
+                selected_option = select_from_list(
+                    "Select a provider to configure", provider_names, default="1"
+                )
+
+                # Find the corresponding provider object
+                selected_provider = None
+                for p in running_providers:
+                    if f"{p.name} ({p.id})" in selected_option:
+                        selected_provider = p
+                        break
+
+                if selected_provider:
+                    config["providers"] = {
+                        selected_provider.id: {
+                            "base_url": selected_provider.base_url,
+                            "api_key_env": selected_provider.api_key_env,
+                        }
+                    }
+
+                    # Retrieve models
+                    models = selected_provider.models
+                    if models:
+                        console.print(f"\n[cyan]Detected models for {selected_provider.name}:[/cyan]")
+                        # Add an option for custom
+                        model_options = list(models) + ["Enter a custom model ID"]
+                        selected_model = select_from_list(
+                            "Select the primary model (Tier-0)", model_options, default="1"
+                        )
+                        if selected_model == "Enter a custom model ID":
+                            config["primary_model"] = Prompt.ask(
+                                "Enter custom primary model ID",
+                                default="anthropic/claude-3-opus-20240229",
+                            )
+                        else:
+                            config["primary_model"] = selected_model
+                    else:
+                        config["primary_model"] = Prompt.ask(
+                            "No models returned from server. Enter primary model ID (Tier-0)",
+                            default="anthropic/claude-3-opus-20240229",
+                        )
+                else:
+                    use_auto = False
+        except (KeyboardInterrupt, EOFError):
+            use_auto = False
+
+    if not use_auto:
+        if not running_providers:
+            console.print(
+                "\n[bold yellow]⚠️  No active providers or routers running on this machine.[/bold yellow]"
+            )
+            console.print("To run OmniRoute (centralized router recommended for llm-gate):")
+            console.print("  [bold]npm install -g omniroute[/bold]")
+            console.print("  [bold]omniroute serve[/bold]\n")
+
+            try:
+                should_manual = Prompt.ask(
+                    "Would you like to manually configure llm-gate right now anyway?", default="y"
+                )
+                if not should_manual.lower().startswith("y"):
+                    console.print(
+                        "\n[yellow]Setup cancelled. Please start your provider/router and try again.[/yellow]"
+                    )
+                    return
+            except (KeyboardInterrupt, EOFError):
+                console.print("\n[yellow]Setup input interrupted.[/yellow]")
+                return
+
+        console.print(
+            Panel.fit(
+                "[bold blue]llm-gate Manual Configuration[/bold blue]",
+                border_style="blue",
+            )
+        )
+        try:
+            config["primary_model"] = Prompt.ask(
+                "[bold]Primary model[/bold] (Tier-0, never offloaded)",
+                default="anthropic/claude-3-opus-20240229",
+            )
+
+            config["providers"] = {}
+            while True:
+                provider_name = Prompt.ask(
+                    "\n[bold]Add a provider[/bold] (name, or 'done' to finish)", default="done"
+                )
+                if provider_name.lower() in ("done", ""):
+                    break
+                base_url = Prompt.ask(f"  Base URL for {provider_name}")
+                api_key_env = Prompt.ask(f"  API key env var for {provider_name}", default="")
+                config["providers"][provider_name] = {
+                    "base_url": base_url,
+                    "api_key_env": api_key_env or None,
+                }
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[yellow]Manual configuration input interrupted.[/yellow]")
+            return
+
+    # Save configuration
     config_dir = os.path.join(
         os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "llm-gate"
     )
@@ -99,7 +200,9 @@ def cmd_setup() -> None:
     with open(config_path, "w") as f:
         yaml.dump(config, f, default_flow_style=False)
 
-    console.print(f"\n[bold green]Saved configuration to {config_path}![/bold green]")
+    console.print(f"\n[bold green]✓ Saved configuration to {config_path}![/bold green]")
+    console.print("[dim]Configuration contents:[/dim]")
+    console.print(yaml.dump(config, default_flow_style=False))
 
 
 def cmd_route(task: str, criticality: str, terse: bool = False) -> None:

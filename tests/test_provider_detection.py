@@ -173,7 +173,7 @@ def test_detect_centralized_routers(monkeypatch: pytest.MonkeyPatch) -> None:
                 "default_base_url": "http://localhost:20128/v1",
                 "models_endpoint": "/models",
                 "detect_running": lambda: True,
-                "install_hint": "pipx install 9router",
+                "install_hint": "npm install -g 9router",
                 "github": "https://github.com/1jehuang/9router",
                 "description": "Router",
             }
@@ -281,7 +281,7 @@ def test_format_detection_report_empty_and_verbose_recommendations() -> None:
                 base_url="http://localhost:20128/v1",
                 models=["model-a", "model-b"],
                 server_running=True,
-                install_hint="pipx install 9router",
+                install_hint="npm install -g 9router",
             )
         ],
         cli_providers=[
