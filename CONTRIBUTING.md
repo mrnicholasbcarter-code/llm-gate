@@ -8,29 +8,31 @@ Thanks for your interest. Here's how to contribute.
 git clone https://github.com/mrnicholasbcarter-code/llm-gate.git
 cd llm-gate
 python -m venv .venv && source .venv/bin/activate
-pip install -e '.[dev]'
+pip install -e '.[dev,server]'
 ```
 
 ## Running Tests
 
 ```bash
-pytest
-ruff check .
-mypy llm_gate/
+.venv/bin/python -m pytest
+.venv/bin/python -m ruff check .
+.venv/bin/python -m mypy llm_gate --strict
 ```
 
 ## Pull Requests
 
 1. Fork the repo and create a branch from `main`.
 2. Add tests for any new functionality.
-3. Ensure `pytest`, `ruff check`, and `mypy` all pass.
+3. Ensure the project-environment `pytest`, Ruff, and strict mypy commands all pass.
 4. Write a clear PR description explaining what and why.
 
 ## Design Principles
 
-- **Zero dependencies.** The core library uses only the Python standard library.
-- **Fail open.** If routing fails, fall back to the primary model. Never block work.
-- **No magic.** The default router is a deterministic tier + keyword matcher. ML is optional.
+- **Layered dependencies.** Core routing remains lightweight; the HTTP proxy uses the declared `httpx` dependency and the FastAPI server is installed with the `server` extra.
+- **Safety first.** Deterministic policy and capability gates always apply. Managed adaptive
+  intelligence is required for production readiness and cannot override hard safety gates.
+- **Explicit degradation.** A development-only degraded mode may be used when the managed
+  intelligence backend is unavailable. It must be visible in readiness and decision metadata.
 - **Decision transparency.** Every routing decision is logged and explainable.
 
 ## Code Style
