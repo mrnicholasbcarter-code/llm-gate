@@ -335,3 +335,58 @@ def test_cmd_doctor_issues_and_duplicates(
     assert "Duplicate host URL configured in llm-gate.yaml" in out
     assert "Duplicate node 'Ollama2'" in out
     assert "node2" in deleted_nodes
+
+
+def test_cmd_check_missing_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+
+    with pytest.raises(SystemExit) as exc:
+        cli.cmd_check()
+    assert exc.value.code == 1
+    assert "Configuration file (llm-gate.yaml) is missing" in capsys.readouterr().out
+
+
+def test_cmd_check_valid_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+
+    cfg_dir = tmp_path / ".config" / "llm-gate"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "llm-gate.yaml").write_text(
+        "primary_model: anthropic/claude-3-opus-20240229\n"
+        "log_path: route-log.jsonl\n"
+        "providers:\n"
+        "  ollama:\n"
+        "    base_url: http://localhost:11434/v1\n"
+    )
+
+    cli.cmd_check()
+    out = capsys.readouterr().out
+    assert "Configuration file is valid" in out
+
+
+def test_cmd_check_invalid_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+
+    cfg_dir = tmp_path / ".config" / "llm-gate"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "llm-gate.yaml").write_text(
+        "primary_model: anthropic/claude-3-opus-20240229\n"
+        "log_path: route-log.jsonl\n"
+        "providers:\n"
+        "  ollama:\n"
+        "    base_url: http://localhost:11434/v1/sk-123456\n"
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.cmd_check()
+    assert exc.value.code == 1
+    assert "Literal API key detected inside host URL for provider" in capsys.readouterr().out

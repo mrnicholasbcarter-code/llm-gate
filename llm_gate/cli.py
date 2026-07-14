@@ -835,6 +835,77 @@ def cmd_doctor() -> None:
         console.print("  [green]✓ System is healthy! All checks passed.[/green]")
 
 
+def cmd_check() -> None:
+    """Validate the llm-gate configuration file and print status."""
+    config_dir = os.path.join(
+        os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "llm-gate"
+    )
+    config_path = os.path.join(config_dir, "llm-gate.yaml")
+
+    if not os.path.exists(config_path):
+        console.print(
+            f"[bold red]❌ Configuration file (llm-gate.yaml) is missing at {config_path}.[/bold red]"
+        )
+        sys.exit(1)
+
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+    except Exception as exc:
+        console.print(
+            f"[bold red]❌ Configuration file is corrupted/invalid YAML: {exc}[/bold red]"
+        )
+        sys.exit(1)
+
+    has_issue = False
+
+    primary_model = config.get("primary_model")
+    if not primary_model:
+        console.print("[bold red]❌ No primary model configured in llm-gate.yaml.[/bold red]")
+        has_issue = True
+    else:
+        from llm_gate.classifier import classify
+
+        tier = classify(primary_model)
+        console.print(f"✓ Configured Primary Model: [cyan]{primary_model}[/] (Tier-{tier})")
+
+    providers = config.get("providers", {})
+    if not isinstance(providers, dict):
+        console.print("[bold red]❌ 'providers' section in llm-gate.yaml is malformed.[/bold red]")
+        has_issue = True
+    else:
+        urls: dict[str, str] = {}
+        for name, p_cfg in providers.items():
+            if not isinstance(p_cfg, dict):
+                console.print(
+                    f"[bold red]❌ Provider '{name}' config is not a dictionary.[/bold red]"
+                )
+                has_issue = True
+                continue
+            base_url = p_cfg.get("base_url", "")
+            if "sk-" in base_url or "api_key" in base_url.lower():
+                console.print(
+                    f"[bold red]❌ Literal API key detected inside host URL for provider '{name}'.[/bold red]"
+                )
+                has_issue = True
+
+            if base_url:
+                url = base_url.rstrip("/")
+                if url in urls:
+                    console.print(
+                        f"[bold red]❌ Duplicate host URL configured in llm-gate.yaml: provider '{name}' and '{urls[url]}' have identical hosts: {url}[/bold red]"
+                    )
+                    has_issue = True
+                else:
+                    urls[url] = name
+
+    if has_issue:
+        console.print("[bold red]❌ Config validation failed with issues.[/bold red]")
+        sys.exit(1)
+
+    console.print("[bold green]✓ Configuration file is valid.[/bold green]")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="llm-gate: Tier-based LLM Router")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -870,6 +941,8 @@ def main() -> None:
     subparsers.add_parser(
         "doctor", help="Scan and repair system configuration and connectivity issues"
     )
+
+    subparsers.add_parser("check", help="Validate system configuration file syntax and sanity")
 
     args = parser.parse_args()
 
@@ -917,6 +990,8 @@ def main() -> None:
         cmd_suggest(args.log_path)
     elif args.command == "doctor":
         cmd_doctor()
+    elif args.command == "check":
+        cmd_check()
     else:
         parser.print_help()
 
