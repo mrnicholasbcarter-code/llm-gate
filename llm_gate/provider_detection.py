@@ -382,6 +382,8 @@ def detect_centralized_routers() -> list[DetectedProvider]:
             elif _check_port(20128):
                 base_url = "http://localhost:20128/v1"
                 server_running = True
+            else:
+                server_running = info["detect_running"]()
         elif router_id == "9router":
             if _check_port(20128):
                 base_url = "http://localhost:20128/v1"
@@ -389,6 +391,8 @@ def detect_centralized_routers() -> list[DetectedProvider]:
             elif _check_port(20132):
                 base_url = "http://localhost:20132/v1"
                 server_running = True
+            else:
+                server_running = info["detect_running"]()
         else:
             server_running = info["detect_running"]()
 

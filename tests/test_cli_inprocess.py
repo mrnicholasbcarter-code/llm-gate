@@ -324,7 +324,7 @@ def test_cmd_doctor_issues_and_duplicates(
     import socket
 
     def mock_create_connection(address, timeout=None, source_address=None):
-        raise socket.error("offline")
+        raise OSError("offline")
 
     monkeypatch.setattr(socket, "create_connection", mock_create_connection)
 
