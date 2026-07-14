@@ -83,18 +83,18 @@ CENTRALIZED_ROUTERS: dict[str, ServerInfo] = {
     "9router": {
         "repo": "1jehuang/9router",
         "description": "Local multi-provider router with OpenAI-compatible API",
-        "default_base_url": "http://localhost:20128/v1",
+        "default_base_url": "http://localhost:20132/v1",
         "models_endpoint": "/models",
-        "detect_running": lambda: _check_port(20128),
-        "install_hint": "pipx install 9router",
+        "detect_running": lambda: _check_port(20132),
+        "install_hint": "pipx install omniroute",
         "github": "https://github.com/1jehuang/9router",
     },
     "omniroute": {
         "repo": "NeuronZero/omniroute",
         "description": "Universal LLM API router with load balancing",
-        "default_base_url": "http://localhost:20128/v1",
+        "default_base_url": "http://localhost:20132/v1",
         "models_endpoint": "/models",
-        "detect_running": lambda: _check_port(20128),
+        "detect_running": lambda: _check_port(20132),
         "install_hint": "pipx install omniroute",
         "github": "https://github.com/NeuronZero/omniroute",
     },
@@ -368,7 +368,7 @@ def _check_provider_auth(provider_id: str) -> bool:
 
 
 def detect_centralized_routers() -> list[DetectedProvider]:
-    """Detect centralized routers (9router, omniroute, etc.)."""
+    """Detect centralized routers (omniroute, etc.)."""
     detected = []
 
     for router_id, info in CENTRALIZED_ROUTERS.items():
@@ -566,7 +566,7 @@ def format_detection_report(result: DetectionResult, verbose: bool = False) -> s
     )
 
     if not has_router and (has_local or has_cloud):
-        lines.append("  • Install a centralized router (9router or omniroute) to unify")
+        lines.append("  • Install a centralized router (omniroute) to unify")
         lines.append(
             "    all your local models + cloud APIs behind one OpenAI-compatible endpoint."
         )
@@ -575,7 +575,7 @@ def format_detection_report(result: DetectionResult, verbose: bool = False) -> s
         lines.append("    Quick start:")
         lines.append("      pipx install 9router")
         lines.append("      9router serve  # Runs on http://localhost:20128/v1")
-        lines.append("      llm-gate setup  # Will auto-detect 9router")
+        lines.append("      llm-gate setup  # Will auto-detect omniroute")
     elif has_router:
         lines.append("  ✅ Centralized router detected — llm-gate can route between")
         lines.append("     local models and cloud providers intelligently.")
@@ -588,7 +588,7 @@ def format_detection_report(result: DetectionResult, verbose: bool = False) -> s
 
     if not has_local and not has_cloud and not has_router:
         lines.append("  • No providers detected. Get started with:")
-        lines.append("      pipx install 9router && 9router serve")
+        lines.append("      pipx install omniroute && omniroute serve")
         lines.append("    Or install a local server:")
         lines.append("      curl -fsSL https://ollama.com/install.sh | sh")
         lines.append("      ollama serve &")
