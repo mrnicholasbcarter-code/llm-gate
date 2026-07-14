@@ -152,3 +152,186 @@ def test_main_dispatches_help_route_stats_detect(
     monkeypatch.setattr(cli.sys, "argv", ["llm-gate", "detect", "--json"])
     cli.main()
     assert '"local_servers"' in capsys.readouterr().out
+
+
+def test_cmd_setup_auto_and_sync_mock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # mock config / home folders
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+
+    # define mocks
+    from llm_gate.provider_detection import DetectedProvider, DetectionResult
+
+    result = DetectionResult(
+        local_servers=[
+            DetectedProvider(
+                id="ollama",
+                name="Ollama",
+                type="local_server",
+                base_url="http://localhost:11434/v1",
+                models=["llama3"],
+                server_running=True,
+            )
+        ]
+    )
+
+    # mock detect_all_providers
+    import llm_gate.provider_detection as provider_detection
+
+    monkeypatch.setattr(provider_detection, "detect_all_providers", lambda: result)
+
+    # Mock inputs mock-up:
+    # 1. should_auto: yes ("y")
+    # 2. selected_option: ollama ("1")
+    # 3. selected_model: llama3 ("1")
+    # 4. Sync prompt: yes ("y")
+    # 5. Fallback prompt: no ("n")
+    inputs = ["y", "1", "1", "y", "n"]
+
+    def mock_ask(*args, **kwargs):
+        if inputs:
+            return inputs.pop(0)
+        return ""
+
+    monkeypatch.setattr(cli.Prompt, "ask", mock_ask)
+
+    # mock api requests
+    posted_nodes = []
+
+    def mock_api_request(method, path, body=None):
+        if method == "GET" and path == "/api/provider-nodes":
+            return {"items": []}  # no existing nodes
+        elif method == "POST" and path == "/api/provider-nodes":
+            posted_nodes.append(body)
+            return {"ok": True}
+        return None
+
+    monkeypatch.setattr(cli, "_omniroute_api_request", mock_api_request)
+
+    cli.cmd_setup()
+
+    # Assertions
+    assert len(posted_nodes) == 1
+    assert posted_nodes[0]["provider"] == "ollama"
+    assert posted_nodes[0]["baseUrl"] == "http://localhost:11434/v1"
+
+    # Verify llm-gate config file was written
+    cfg_file = tmp_path / ".config" / "llm-gate" / "llm-gate.yaml"
+    assert cfg_file.exists()
+    import yaml
+
+    with open(cfg_file) as f:
+        cfg = yaml.safe_load(f)
+    assert cfg["primary_model"] == "llama3"
+    assert cfg["providers"]["ollama"]["base_url"] == "http://localhost:11434/v1"
+
+
+def test_cmd_doctor_all_healthy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+
+    cfg_dir = tmp_path / ".config" / "llm-gate"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "llm-gate.yaml").write_text(
+        "primary_model: anthropic/claude-3-opus-20240229\n"
+        "log_path: route-log.jsonl\n"
+        "providers:\n"
+        "  ollama:\n"
+        "    base_url: http://localhost:11434/v1\n"
+    )
+
+    # Mock omniroute API helper - healthy, no duplicates
+    def mock_api_request(method, path, body=None):
+        if method == "GET" and path == "/api/provider-nodes":
+            return [
+                {
+                    "id": "node1",
+                    "name": "Ollama",
+                    "baseUrl": "http://127.0.0.1:11434/v1",
+                }
+            ]
+        return None
+
+    monkeypatch.setattr(cli, "_omniroute_api_request", mock_api_request)
+
+    # Mock socket connection to make local port reachable
+    import socket
+    from unittest.mock import MagicMock
+
+    def mock_create_connection(address, timeout=None, source_address=None):
+        return MagicMock()
+
+    monkeypatch.setattr(socket, "create_connection", mock_create_connection)
+
+    cli.cmd_doctor()
+
+    out = capsys.readouterr().out
+    assert "System is healthy! All checks passed." in out
+    assert "Doctor Report: 0 issues identified. 0 resolved." in out
+
+
+def test_cmd_doctor_issues_and_duplicates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+
+    # Config with issue: literal API key in URL, and duplicate base_url
+    cfg_dir = tmp_path / ".config" / "llm-gate"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "llm-gate.yaml").write_text(
+        "primary_model: anthropic/claude-3-opus-20240229\n"
+        "log_path: route-log.jsonl\n"
+        "providers:\n"
+        "  ollama:\n"
+        "    base_url: http://localhost:11434/v1/sk-testkey\n"
+        "  ollama2:\n"
+        "    base_url: http://localhost:11434/v1/sk-testkey\n"
+    )
+
+    # Mock duplicate nodes returned from OmniRoute API, clean_url is identical
+    deleted_nodes = []
+
+    def mock_api_request(method, path, body=None):
+        if method == "GET" and path == "/api/provider-nodes":
+            return [
+                {
+                    "id": "node1",
+                    "name": "Ollama1",
+                    "baseUrl": "http://127.0.0.1:11434/v1",
+                },
+                {
+                    "id": "node2",
+                    "name": "Ollama2",
+                    "baseUrl": "http://127.0.0.1:11434/v1",
+                },
+            ]
+        elif method == "DELETE" and path.startswith("/api/provider-nodes/"):
+            deleted_nodes.append(path.split("/")[-1])
+            return {"ok": True}
+        return None
+
+    monkeypatch.setattr(cli, "_omniroute_api_request", mock_api_request)
+
+    # Mock user prompt answers "y"
+    monkeypatch.setattr(cli.Prompt, "ask", lambda *args, **kwargs: "y")
+
+    # Mock socket check as always failing (unreachable) to cause host offline issue
+    import socket
+
+    def mock_create_connection(address, timeout=None, source_address=None):
+        raise socket.error("offline")
+
+    monkeypatch.setattr(socket, "create_connection", mock_create_connection)
+
+    cli.cmd_doctor()
+
+    out = capsys.readouterr().out
+    assert "Literal API key detected inside the host URL for provider" in out
+    assert "Duplicate host URL configured in llm-gate.yaml" in out
+    assert "Duplicate node 'Ollama2'" in out
+    assert "node2" in deleted_nodes

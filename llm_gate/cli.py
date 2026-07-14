@@ -1,6 +1,7 @@
 """CLI entry point for llm-gate."""
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -29,12 +30,75 @@ def _print_detection_banner() -> None:
     )
 
 
+def _read_omniroute_token() -> str | None:
+    """Read the OmniRoute management token from local filesystem or env."""
+    db_path = os.path.expanduser("~/.omniroute/storage.sqlite")
+    if not os.path.exists(db_path):
+        return os.getenv("OMNIROUTE_API_KEY")
+    import sqlite3
+
+    try:
+        con = sqlite3.connect(db_path)
+        try:
+            # Check for active key named 'Jcode' first, then 'ok', or any active management key
+            row = con.execute(
+                "select key from api_keys where is_active=1 order by case when name='Jcode' then 0 when name='ok' then 1 else 2 end, id limit 1"
+            ).fetchone()
+            if row:
+                return str(row[0])
+        finally:
+            con.close()
+    except Exception:
+        pass
+    return os.getenv("OMNIROUTE_API_KEY")
+
+
+def _omniroute_api_request(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+    """Make an authenticated request to the local OmniRoute server."""
+    token = _read_omniroute_token()
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    import socket
+
+    port = 20128
+
+    def check_port(p: int) -> bool:
+        try:
+            with socket.create_connection(("127.0.0.1", p), timeout=0.1):
+                return True
+        except Exception:
+            return False
+
+    if not check_port(20128) and check_port(20132):
+        port = 20132
+
+    url = f"http://127.0.0.1:{port}{path}"
+
+    import json
+    import urllib.request
+    from urllib.error import URLError
+
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    if data:
+        headers["Content-Type"] = "application/json"
+
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=5) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (URLError, Exception):
+        return None
+
+
 def select_from_list(prompt_text: str, options: list[str], default: str | None = None) -> str:
     """Prompt the user to select from a list of options."""
     for i, opt in enumerate(options, 1):
         console.print(f"  [green]{i}[/]: {opt}")
     while True:
-        choice = Prompt.ask(prompt_text, default=default).strip()
+        ask_val = Prompt.ask(prompt_text, default=default)
+        choice = str(ask_val).strip() if ask_val is not None else ""
         try:
             val = int(choice)
             if 1 <= val <= len(options):
@@ -43,6 +107,21 @@ def select_from_list(prompt_text: str, options: list[str], default: str | None =
             if choice in options:
                 return choice
         console.print("[yellow]Invalid choice. Please enter the number or the exact name.[/]")
+
+
+PROVIDER_MAPPING = {
+    "ollama": ("ollama", "http://localhost:11434/v1", "ollama-local"),
+    "lmstudio": ("lmstudio", "http://localhost:1234/v1", "lmstudio-local"),
+    "vllm": ("vllm", "http://localhost:8000/v1", "vllm-local"),
+    "llamacpp": ("openai", "http://localhost:8080/v1", "llamacpp-local"),
+    "koboldcpp": ("openai", "http://localhost:5001/v1", "koboldcpp-local"),
+    "openai": ("openai", "https://api.openai.com/v1", "openai-cloud"),
+    "anthropic": ("anthropic", "https://api.anthropic.com", "anthropic-cloud"),
+    "groq": ("groq", "https://api.groq.com/openai/v1", "groq-cloud"),
+    "xai": ("xai", "https://api.x.ai/v1", "xai-cloud"),
+    "google": ("google", "https://generativelanguage.googleapis.com", "gemini-cloud"),
+    "openrouter": ("openrouter", "https://openrouter.ai/api/v1", "openrouter-cloud"),
+}
 
 
 def cmd_setup() -> None:
@@ -116,9 +195,11 @@ def cmd_setup() -> None:
                     # Retrieve models
                     models = selected_provider.models
                     if models:
-                        console.print(f"\n[cyan]Detected models for {selected_provider.name}:[/cyan]")
+                        console.print(
+                            f"\n[cyan]Detected models for {selected_provider.name}:[/cyan]"
+                        )
                         # Add an option for custom
-                        model_options = list(models) + ["Enter a custom model ID"]
+                        model_options = [*list(models), "Enter a custom model ID"]
                         selected_model = select_from_list(
                             "Select the primary model (Tier-0)", model_options, default="1"
                         )
@@ -138,6 +219,140 @@ def cmd_setup() -> None:
                     use_auto = False
         except (KeyboardInterrupt, EOFError):
             use_auto = False
+
+    # Automatically add/sync detected providers to OmniRoute/9Router
+    if running_providers:
+        to_sync = []
+        try:
+            # Check existing nodes in OmniRoute
+            existing_nodes = _omniroute_api_request("GET", "/api/provider-nodes")
+            existing_urls = set()
+            if existing_nodes:
+                items = []
+                if isinstance(existing_nodes, list):
+                    items = existing_nodes
+                elif isinstance(existing_nodes, dict) and "items" in existing_nodes:
+                    items = existing_nodes["items"]
+                for node in items:
+                    if isinstance(node, dict) and "baseUrl" in node and node["baseUrl"]:
+                        existing_urls.add(node["baseUrl"].rstrip("/"))
+
+                for p in running_providers:
+                    if p.id in PROVIDER_MAPPING:
+                        prov_name, base_url, node_name = PROVIDER_MAPPING[p.id]
+                        url_to_check = p.base_url or base_url
+                        if url_to_check.rstrip("/") not in existing_urls:
+                            to_sync.append((p.name, prov_name, url_to_check, node_name))
+
+            if to_sync:
+                console.print(
+                    "\n[bold cyan]Syncing detected system providers to OmniRoute/9Router:[/bold cyan]"
+                )
+                for name, _p_name, url, _ in to_sync:
+                    console.print(f"  • Found active [green]{name}[/]: [dim]{url}[/]")
+
+                if (
+                    Prompt.ask(
+                        "Sync these active providers to OmniRoute as node endpoints?", default="y"
+                    )
+                    .lower()
+                    .startswith("y")
+                ):
+                    for _name, p_name, url, node_name in to_sync:
+                        payload = {
+                            "provider": p_name,
+                            "baseUrl": url,
+                            "name": node_name,
+                            "weight": 100,
+                            "enabled": True,
+                        }
+                        res = _omniroute_api_request("POST", "/api/provider-nodes", payload)
+                        if res:
+                            console.print(
+                                f"  [green]✓[/] Successfully registered node: {node_name}"
+                            )
+                        else:
+                            console.print(f"  [red]✗[/] Failed to register node: {node_name}")
+        except (KeyboardInterrupt, EOFError):
+            pass
+
+    # Prompt user about adding free providers like gemini/antigravity for local fallback routing
+    try:
+        console.print("\n[bold cyan]Fallback Models Configuration:[/bold cyan]")
+        if (
+            Prompt.ask(
+                "Setup free fallback endpoints (Gemini Free, OpenRouter Free) for local offloads?",
+                default="n",
+            )
+            .lower()
+            .startswith("y")
+        ):
+            gemini_key = os.getenv("GEMINI_API_KEY")
+            if not gemini_key:
+                console.print(
+                    "\n[yellow]⚠️  GEMINI_API_KEY is not configured in your environment.[/yellow]"
+                )
+                console.print("  Get a free Gemini API key at: https://aistudio.google.com/")
+                console.print('  Then select it: export GEMINI_API_KEY="your_key"')
+
+            or_key = os.getenv("OPENROUTER_API_KEY")
+            if not or_key:
+                console.print(
+                    "\n[yellow]⚠️  OPENROUTER_API_KEY is not configured in your environment.[/yellow]"
+                )
+                console.print("  Get an OpenRouter key at: https://openrouter.ai/keys")
+                console.print('  Then select it: export OPENROUTER_API_KEY="your_key"')
+
+            fallback_options = [
+                "Google Gemini Free Tier (https://generativelanguage.googleapis.com)",
+                "OpenRouter Free Models (https://openrouter.ai/api/v1)",
+            ]
+
+            console.print("\nAvailable free fallback endpoints:")
+            selected_fallbacks = []
+            for i, opt in enumerate(fallback_options, 1):
+                console.print(f"  [green]{i}[/]: {opt}")
+
+            choices = Prompt.ask(
+                "Enter endpoints to add (e.g. '1, 2' or 'all', or 'done')", default="all"
+            )
+            if choices.strip().lower() == "all":
+                selected_fallbacks = [1, 2]
+            elif choices.strip().lower() != "done":
+                with contextlib.suppress(ValueError):
+                    selected_fallbacks = [int(x.strip()) for x in choices.split(",") if x.strip()]
+
+            for idx in selected_fallbacks:
+                if idx == 1:
+                    payload = {
+                        "provider": "google",
+                        "baseUrl": "https://generativelanguage.googleapis.com",
+                        "name": "gemini-free",
+                        "weight": 80,
+                        "enabled": True,
+                    }
+                    res = _omniroute_api_request("POST", "/api/provider-nodes", payload)
+                    if res:
+                        console.print("  [green]✓[/] Registered Gemini Free fallback node")
+                    else:
+                        console.print(
+                            "  [red]✗[/] Failed to register Gemini Free fallback node (OmniRoute not running)"
+                        )
+                elif idx == 2:
+                    payload = {
+                        "provider": "openrouter",
+                        "baseUrl": "https://openrouter.ai/api/v1",
+                        "name": "openrouter-free",
+                        "weight": 80,
+                        "enabled": True,
+                    }
+                    res = _omniroute_api_request("POST", "/api/provider-nodes", payload)
+                    if res:
+                        console.print("  [green]✓[/] Registered OpenRouter Free fallback node")
+                    else:
+                        console.print("  [red]✗[/] Failed to register OpenRouter Free node")
+    except (KeyboardInterrupt, EOFError):
+        pass
 
     if not use_auto:
         if not running_providers:
@@ -448,6 +663,178 @@ def cmd_suggest(log_path: str = "llm-gate-decisions.jsonl") -> None:
         console.print("---")
 
 
+def cmd_doctor() -> None:
+    """Scan the llm-gate setup and OmniRoute connections for issues and repair them."""
+    console.print(
+        Panel.fit("[bold green]🩺 llm-gate System Doctor[/bold green]", border_style="green")
+    )
+
+    issues_found = []
+    fixed_issues = []
+
+    # 1. Config Check
+    config_dir = os.path.join(
+        os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "llm-gate"
+    )
+    config_path = os.path.join(config_dir, "llm-gate.yaml")
+    config = None
+
+    if not os.path.exists(config_path):
+        issues_found.append("Configuration file (llm-gate.yaml) is missing.")
+    else:
+        try:
+            with open(config_path) as f:
+                config = yaml.safe_load(f) or {}
+        except Exception as exc:
+            issues_found.append(f"Configuration file is corrupted/invalid YAML: {exc}")
+
+    if config is not None:
+        primary_model = config.get("primary_model")
+        if not primary_model:
+            issues_found.append("No primary model configured in llm-gate.yaml.")
+        else:
+            from llm_gate.classifier import classify
+
+            tier = classify(primary_model)
+            console.print(f"  • Configured Primary Model: [cyan]{primary_model}[/] (Tier-{tier})")
+
+        providers = config.get("providers", {})
+        if not isinstance(providers, dict):
+            issues_found.append("'providers' section in llm-gate.yaml is malformed.")
+        else:
+            # Check for secrets inside the config file
+            for name, p_cfg in providers.items():
+                if not isinstance(p_cfg, dict):
+                    continue
+                base_url = p_cfg.get("base_url", "")
+                if "sk-" in base_url or "api_key" in base_url.lower():
+                    issues_found.append(
+                        f"Literal API key detected inside the host URL for provider '{name}'."
+                    )
+
+            # Check duplicate URLs in config
+            urls: dict[str, str] = {}
+            for name, p_cfg in providers.items():
+                if isinstance(p_cfg, dict) and p_cfg.get("base_url"):
+                    url = p_cfg["base_url"].rstrip("/")
+                    if url in urls:
+                        issues_found.append(
+                            f"Duplicate host URL configured in llm-gate.yaml: provider '{name}' and '{urls[url]}' have identical hosts."
+                        )
+                    else:
+                        urls[url] = name
+
+    # 2. OmniRoute nodes check
+    existing_nodes = _omniroute_api_request("GET", "/api/provider-nodes")
+    if existing_nodes is None:
+        console.print(
+            "[dim]OmniRoute server is not currently running/reachable to check nodes.[/dim]"
+        )
+    else:
+        items = []
+        if isinstance(existing_nodes, list):
+            items = existing_nodes
+        elif isinstance(existing_nodes, dict) and "items" in existing_nodes:
+            items = existing_nodes["items"]
+
+        console.print(
+            f"  • Connected to OmniRoute: [green]OK[/] (Found {len(items)} configured node endpoints)"
+        )
+
+        # Check duplicate nodes in OmniRoute
+        node_urls: dict[str, str] = {}
+        duplicates = []
+        for node in items:
+            if not isinstance(node, dict):
+                continue
+            bd_url = node.get("baseUrl")
+            node_id = node.get("id")
+            if bd_url and node_id:
+                clean_url = bd_url.rstrip("/")
+                if clean_url in node_urls:
+                    duplicates.append(
+                        (node_id, node.get("name") or node_id, bd_url, node_urls[clean_url])
+                    )
+                else:
+                    node_urls[clean_url] = node_id
+
+        if duplicates:
+            console.print(
+                "\n[yellow]⚠️  Duplicate provider nodes detected in local OmniRoute database:[/yellow]"
+            )
+            for node_id, name, url, original_id in duplicates:
+                console.print(
+                    f"  • Node [red]{name}[/] ({node_id}) is a duplicate of node ({original_id}) on URL: {url}"
+                )
+                issues_found.append(f"Duplicate node '{name}' in OmniRoute configuration.")
+
+            try:
+                if (
+                    Prompt.ask(
+                        "\nWould you like to resolve and delete the duplicate provider nodes?",
+                        default="y",
+                    )
+                    .lower()
+                    .startswith("y")
+                ):
+                    for node_id, name, _url, _ in duplicates:
+                        res = _omniroute_api_request("DELETE", f"/api/provider-nodes/{node_id}")
+                        if res is not None:
+                            console.print(f"  [green]✓[/] Removed duplicate node: {name}")
+                            fixed_issues.append(f"Removed duplicate node {node_id}")
+                        else:
+                            console.print(f"  [red]✗[/] Failed to remove node {node_id}")
+            except (KeyboardInterrupt, EOFError):
+                pass
+
+        # Check node reachability
+        for node in items:
+            if not isinstance(node, dict):
+                continue
+            url = node.get("baseUrl")
+            name = node.get("name") or node.get("id")
+            if url:
+                import socket
+                from urllib.parse import urlparse
+
+                try:
+                    parsed = urlparse(url)
+                    host = parsed.hostname or "127.0.0.1"
+                    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+                    with socket.create_connection((host, port), timeout=1.0):
+                        pass
+                except Exception:
+                    issues_found.append(
+                        f"Configured provider node '{name}' ({url}) is unreachable/offline."
+                    )
+
+    # 4. Summary report
+    console.print("\n" + "═" * 45)
+    console.print(
+        f"🩺 Doctor Report: {len(issues_found)} issues identified. {len(fixed_issues)} resolved."
+    )
+    console.print("═" * 45)
+
+    if issues_found:
+        for iss in issues_found:
+            is_fixed = False
+            for fixed_issue in fixed_issues:
+                if fixed_issue.lower() in iss.lower():
+                    is_fixed = True
+                    break
+            if is_fixed:
+                console.print(f"  [green]✓ FIXED:[/] {iss}")
+            else:
+                console.print(f"  [red]✗ ISSUE:[/] {iss}")
+
+        if not config:
+            console.print(
+                "\n[yellow]💡 Suggestion: Run 'llm-gate setup' to initialize your configuration file.[/yellow]"
+            )
+    else:
+        console.print("  [green]✓ System is healthy! All checks passed.[/green]")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="llm-gate: Tier-based LLM Router")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -479,6 +866,10 @@ def main() -> None:
         "suggest", help="Review intelligence suggestions from past outcomes"
     )
     suggest_p.add_argument("--log_path", default="llm-gate-decisions.jsonl")
+
+    subparsers.add_parser(
+        "doctor", help="Scan and repair system configuration and connectivity issues"
+    )
 
     args = parser.parse_args()
 
@@ -524,6 +915,8 @@ def main() -> None:
         cmd_detect(verbose=args.verbose, output_json=args.json, output_config=args.config)
     elif args.command == "suggest":
         cmd_suggest(args.log_path)
+    elif args.command == "doctor":
+        cmd_doctor()
     else:
         parser.print_help()
 
