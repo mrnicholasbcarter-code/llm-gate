@@ -45,10 +45,38 @@ def normalize_catalog(
         if model_id in denylist:
             continue
         normalized = dict(row)
+
+        capabilities = row.get("capabilities", {})
+        is_claude = "claude" in model_id.lower()
+        is_gpt4 = "gpt-4" in model_id.lower()
+        is_gemini = "gemini" in model_id.lower()
+        provider_name = model_id.split("/")[0] if "/" in model_id.lower() else "unknown"
+        family = (
+            "claude"
+            if is_claude
+            else "gpt"
+            if "gpt" in model_id
+            else "gemini"
+            if is_gemini
+            else "unknown"
+        )
+
         normalized["llm_gate"] = {
             "eligible": True,
             "availability_state": "unknown",
-            "capability_profile": {"tier": classify(model_id)},
+            "capability_profile": {
+                "tier": classify(model_id),
+                "context": capabilities.get("context", 128000),
+                "tools": True,
+                "structured_output": True,
+                "vision": bool(
+                    capabilities.get("vision") or is_gpt4 or "claude-3" in model_id.lower()
+                ),
+                "streaming": True,
+                "reasoning": "o1" in model_id.lower() or "-r1" in model_id.lower(),
+                "provider": provider_name,
+                "model_family": family,
+            },
         }
         rows.append(normalized)
 

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 from fastapi.testclient import TestClient
 
 import llm_gate.api as api
+from llm_gate.intelligence import ReadinessReport
 from llm_gate.models import RoutingDecision
 from llm_gate.proxy import UpstreamProxy
 
@@ -77,7 +78,7 @@ class RecordingTransport(httpx.AsyncBaseTransport):
 
 class FixedIntelligence:
     primary_model = "selected-model"
-    providers = {}
+    providers: ClassVar[dict[str, object]] = {}
     log_path = ""
     log_full_task = False
     discovery_ttl = 60
@@ -92,17 +93,26 @@ class FixedIntelligence:
             provider="omniroute",
             tier=2,
             reason="test selection",
+            request_id="request-1",
+            managed_backend_status="healthy",
+            quality_outcome="unknown",
         )
 
-    def readiness(self):
-        from llm_gate.intelligence import ReadinessReport
-
-        return ReadinessReport("ready", True, "test", "healthy", False, "policy-1", "test", {})
+    def readiness(self) -> ReadinessReport:
+        return ReadinessReport(
+            status="ready",
+            production_ready=True,
+            profile="production",
+            managed_backend_status="healthy",
+            degraded_mode=False,
+            policy_version="policy-2026-07-13.1",
+            reason="ready",
+            adapter_versions={"ruflo": "ruflo", "ruvector": "ruvector"},
+        )
 
 
 def _configure_test_app(monkeypatch, transport: RecordingTransport) -> None:
     monkeypatch.setattr(api, "_build_intelligence", lambda: FixedIntelligence())
-
     monkeypatch.setattr(
         api,
         "_build_proxy",
@@ -196,5 +206,15 @@ def test_models_endpoint_forwards_upstream_catalog(monkeypatch) -> None:
     assert response.json()["data"][0]["llm_gate"] == {
         "eligible": True,
         "availability_state": "unknown",
-        "capability_profile": {"tier": 2},
+        "capability_profile": {
+            "tier": 2,
+            "context": 128000,
+            "tools": True,
+            "structured_output": True,
+            "vision": False,
+            "streaming": True,
+            "reasoning": False,
+            "provider": "unknown",
+            "model_family": "unknown",
+        },
     }
