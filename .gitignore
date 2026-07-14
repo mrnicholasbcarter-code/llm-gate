@@ -1,4 +1,10 @@
 __pycache__/
+*.jsonl
+benchmark_output*
+benchmark_evidence*
+route-log*
+run_test_grid.sh
+*_claims_patch.py
 *.py[cod]
 *$py.class
 *.so

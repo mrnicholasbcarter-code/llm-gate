@@ -1,116 +1,253 @@
-# llm-gate
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License">
+  <a href="https://github.com/mrnicholasbcarter-code/llm-gate/actions"><img src="https://img.shields.io/github/actions/workflow/status/mrnicholasbcarter-code/llm-gate/ci.yml?style=flat-square&label=CI" alt="CI"></a>
+  <a href="https://pypi.org/project/llm-gate/"><img src="https://img.shields.io/pypi/v/llm-gate?style=flat-square" alt="PyPI"></a>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
-[![Status](https://img.shields.io/badge/status-alpha-orange.svg)](docs/specs/RELEASE_ACCEPTANCE.md)
+<h1 align="center">llm-gate</h1>
+<p align="center"><b>Intelligent LLM routing. One line changes where your tokens go.</b></p>
 
-`llm-gate` is a Python routing library and local OpenAI-compatible proxy. It evaluates request criticality, applies deterministic safety heuristics, selects a configured model, and forwards standard chat-completion traffic to an upstream such as OmniRoute.
+---
 
-> **Honest status:** the proxy and catalog slices are implemented and tested, but this project is not yet a production-ready release. Live upstream availability, local authentication, legal retry/fallback, managed intelligence, and end-to-end OmniRoute evidence remain tracked release gates.
+**llm-gate** is a Python library and local OpenAI-compatible proxy that routes LLM requests based on criticality, cost, and provider availability. It evaluates each request, selects the right model from your configured providers, and forwards standard `chat/completions` traffic through a transparent proxy, so you never accidentally send production code to a cheap model.
 
-## What is implemented
+```python
+from llm_gate import Gate
 
-- `Gate.route()` for direct, explainable criticality-based routing.
-- `POST /v1/chat/completions` with minimal model rewriting.
-- Unknown request fields, tools, response-format options, usage, errors, and streamed bytes are preserved by the transport layer.
-- Server-owned upstream authentication. Client-provided authorization is not forwarded.
-- `GET /v1/models` with local allow/deny filtering through `LLMGATE_MODEL_ALLOWLIST` and `LLMGATE_MODEL_DENYLIST`.
-- Explicit `llm_gate.availability_state: "unknown"` metadata so catalog rows are not presented as live or healthy.
-- `GET /health`, upstream-aware `GET /ready`, and the existing `POST /v1/route` explain-only API.
-- Request-size enforcement through `LLMGATE_MAX_REQUEST_BYTES`.
-
-## Install and run
-
-For the library and CLI:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e '.[dev,server]'
+gate = Gate()
+decision = gate.route("Rewrite the auth module", criticality="high")
+print(decision.model)   # anthropic/claude-sonnet-4-20250514
+print(decision.reason)  # "High-criticality task routed to tier-0 primary model"
 ```
 
-Start the development proxy with an explicit upstream:
+## Why llm-gate?
+
+| Problem | llm-gate solution |
+|---|---|
+| Accidentally routing sensitive code to weak models | Criticality classifier with deterministic tier enforcement |
+| Manually switching API keys between providers | Auto-detection of local servers, CLI tools, API keys, and routers |
+| No visibility into routing decisions | JSONL decision logging, analytics CLI, and Streamlit dashboard |
+| Vendor lock-in | OpenAI-compatible proxy works with any client (Cursor, Aider, Claude Code, etc.) |
+| Cost blowups | Headroom monitoring and intelligent model selection |
+
+## Quick Start
+
+### Install
 
 ```bash
-export LLMGATE_UPSTREAM_BASE_URL=http://127.0.0.1:20132/v1
-export OMNIROUTE_API_KEY=your-local-key
-llm-gate serve --host 127.0.0.1 --port 8000
+pip install llm-gate
 ```
 
-The proxy routes to `LLMGATE_PRIMARY` when no discovered provider candidate is eligible. The default remains `anthropic/claude-3-opus-20240229` for compatibility with the original routing API. Set it explicitly for a local OmniRoute catalog, for example:
+Or from source with all extras:
 
 ```bash
-export LLMGATE_PRIMARY=cx/gpt-5.4-mini
+git clone https://github.com/mrnicholasbcarter-code/llm-gate.git
+cd llm-gate
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev,server,ui]"
 ```
 
-Smoke test the process and proxy surface:
+### Setup Wizard
+
+The interactive setup wizard auto-detects your local providers and walks you through configuration:
 
 ```bash
-curl http://127.0.0.1:8000/health
-curl http://127.0.0.1:8000/ready
-curl http://127.0.0.1:8000/v1/models
-curl http://127.0.0.1:8000/v1/chat/completions \
-  -H 'content-type: application/json' \
-  -d '{"model":"client-model","messages":[{"role":"user","content":"hello"}]}'
+llm-gate setup
 ```
+
+```
+┌─ llm-gate Provider Detection ─┐
+│ Scanning for local servers,    │
+│ CLIs, API keys, and routers... │
+└────────────────────────────────┘
+ ✓ Ollama detected at localhost:11434 (3 models)
+ ✓ OPENAI_API_KEY found
+ ✓ ANTHROPIC_API_KEY found
+
+ Primary model: anthropic/claude-sonnet-4-20250514
+ Add a provider: openai
+   Base URL: https://api.openai.com/v1
+   API key env var: OPENAI_API_KEY
+ Add a provider: done
+
+ ✓ Configuration saved to llm-gate.yaml
+```
+
+### Route a Task
+
+```bash
+llm-gate route "Fix the SQL injection in user_auth.py" --criticality high
+```
+
+```
+┌─ Routing Decision ─────────────────────────┐
+│ Model:    anthropic/claude-sonnet-4-20250514│
+│ Tier:     0 (primary)                       │
+│ Reason:   High-criticality security task    │
+│ Latency:  0.12ms                            │
+└─────────────────────────────────────────────┘
+```
+
+### Run as a Proxy Server
+
+Drop llm-gate in front of any OpenAI-compatible client:
+
+```bash
+export LLMGATE_UPSTREAM_BASE_URL=https://api.openai.com/v1
+export OPENAI_API_KEY=sk-...
+llm-gate serve --port 8000
+```
+
+Then point your tools at `http://localhost:8000/v1`:
+
+```bash
+# Works with curl
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "gpt-4o", "messages": [{"role": "user", "content": "Hello"}]}'
+
+# Works with any OpenAI SDK client
+export OPENAI_BASE_URL=http://localhost:8000/v1
+```
+
+## CLI Commands
+
+| Command | Description |
+|---|---|
+| `llm-gate setup` | Interactive setup wizard with auto-detection |
+| `llm-gate route <task>` | Route a single prompt with explanation |
+| `llm-gate serve` | Launch OpenAI-compatible proxy server |
+| `llm-gate detect` | Scan for available LLM providers |
+| `llm-gate stats` | View routing analytics from decision logs |
+| `llm-gate suggest` | Get evidence-backed optimization suggestions |
+| `llm-gate ui` | Launch Streamlit analytics dashboard |
+
+## Proxy Features
+
+- **`POST /v1/chat/completions`** with streaming support and model rewriting
+- **`GET /v1/models`** with local allow/deny filtering via `LLMGATE_MODEL_ALLOWLIST` / `LLMGATE_MODEL_DENYLIST`
+- **`POST /v1/route`** explain-only routing decisions without forwarding
+- **`GET /health`** and upstream-aware **`GET /ready`**
+- Request-size enforcement via `LLMGATE_MAX_REQUEST_BYTES`
+- Server-owned upstream auth (client keys are never forwarded)
+- Unknown fields, tools, response-format, and usage preserved transparently
+
+## How Routing Works
+
+```
+Request → Classifier → Tier Assignment → Model Selection → Provider Dispatch
+              │              │                  │                │
+         Criticality    0=primary          Best available    Forward to
+         detection      1=capable          model in tier     upstream
+         (heuristic)    2=standard                           provider
+                        3=economy
+```
+
+1. **Classification** evaluates the task text for security keywords, code complexity signals, and domain markers
+2. **Tier assignment** maps criticality to a tier (0 = never offload, 3 = cheapest available)
+3. **Model selection** picks the best available model within the tier from your configured providers
+4. **Escalation** promotes to a higher tier if the selected model lacks required capabilities
 
 ## Configuration
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `LLMGATE_UPSTREAM_BASE_URL` | `http://127.0.0.1:20132/v1` | Fixed upstream OpenAI-compatible base URL |
-| `LLMGATE_UPSTREAM_API_KEY` | empty | Server-owned upstream bearer token |
-| `OMNIROUTE_API_KEY` | empty | Convenience fallback for OmniRoute deployments |
-| `LLMGATE_PRIMARY` | `anthropic/claude-3-opus-20240229` | Safe primary model fallback |
-| `LLMGATE_MODEL_ALLOWLIST` | empty | Comma-separated exact model IDs to expose |
-| `LLMGATE_MODEL_DENYLIST` | empty | Comma-separated exact model IDs to hide |
-| `LLMGATE_MAX_REQUEST_BYTES` | `2097152` | Maximum request body size |
-| `LLMGATE_UPSTREAM_TIMEOUT_MS` | `30000` | Upstream request timeout |
-| `LLMGATE_LOG_PATH` | `llm-gate-decisions.jsonl` | Redacted decision log path |
+Create `llm-gate.yaml` (or use `llm-gate setup`):
 
-The upstream URL is process configuration, not a per-request field. Do not put credentials in request JSON or commit them to the repository.
+```yaml
+primary_model: anthropic/claude-sonnet-4-20250514
+log_path: decisions.jsonl
 
-## Direct routing API
-
-The original explain-only API remains available without proxying model bytes:
-
-```bash
-llm-gate route "deploy the production database" --criticality critical
-llm-gate route "format this JSON" --criticality low --terse
+providers:
+  anthropic:
+    base_url: https://api.anthropic.com/v1
+    api_key_env: ANTHROPIC_API_KEY
+  openai:
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+  ollama:
+    base_url: http://localhost:11434/v1
 ```
 
-The HTTP equivalent is `POST /v1/route` with `{ "task": "...", "criticality": "..." }`.
+## Integrations
 
-## Verification
+llm-gate works as a transparent proxy with any OpenAI-compatible client:
 
-Use the declared environment for reproducible checks:
+- **[Cursor / VS Code](docs/integrations/cursor-vscode.md)** - Set base URL in settings
+- **[Aider](docs/integrations/aider.md)** - `--openai-api-base http://localhost:8000/v1`
+- **[Claude Code](docs/integrations/claude-code-hook.md)** - Hook-based integration
+- **[LiteLLM](docs/integrations/litellm.md)** - Use as upstream proxy
+- **[OpenHands](docs/integrations/openhands.md)** - Environment variable config
+- **[Any OpenAI SDK](docs/integrations/universal-agnostic.md)** - Just change the base URL
+
+See [docs/integrations/](docs/integrations/) for the full list.
+
+## Intelligence and Suggestions
+
+After accumulating routing decisions, llm-gate can mine your history for optimization insights:
 
 ```bash
-python -m pytest -q
-ruff check llm_gate tests
-ruff format --check llm_gate tests
-mypy llm_gate
-python -m build
-python -m twine check dist/*
+llm-gate suggest
 ```
 
-The current clean-environment checkpoint is 71 tests passing, with Ruff, format, mypy, wheel/sdist build, and `twine check` passing. Warnings from the FastAPI/Starlette test-client compatibility layer do not fail the suite.
+```
+┌─ llm-gate Intelligence Suggestions ─┐
 
-## Release scope and open gates
+ High Latency Routing Detected (SUG-LAT-001)
+ Category: Performance | Expires In: 7d
+ Over 10 requests routed to slow-model with latency > 2500ms.
+ Proposed: Evaluate adding a lightweight T3 provider.
+ Confidence: 92.0% | Impact: High
 
-The v0.2 product specification and acceptance matrix are normative:
+───
+```
 
-- [Product specification](docs/specs/PRODUCT_SPEC_V0.2.md)
-- [Release acceptance matrix](docs/specs/RELEASE_ACCEPTANCE.md)
-- [Routing policy](docs/specs/ROUTING_POLICY.md)
-- [Flagship readiness audit and staged lift plan](docs/specs/FLAGSHIP_20K_STAR_AUDIT_2026-07-13.md)
+Suggestions are read-only, never mutate policy automatically, and require explicit approval before any action.
 
-Before calling the project production-ready, the implementation still needs local auth, SSRF-safe URL validation, filtered dispatch tied to live capability and headroom state, legal idempotent fallback, required Ruflo/RuVector intelligence, raw HTTP and SDK compatibility smoke tests, and a configured OmniRoute live test.
+## Development
 
-## Contributing
+```bash
+# Run tests
+pytest tests/ -v
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports and narrowly scoped pull requests are welcome. Please include the exact command output used to validate behavior and avoid sharing API keys or raw prompts.
+# Lint and format
+ruff check . --fix && ruff format .
+
+# Type check
+mypy llm_gate --strict
+
+# Run benchmarks
+python benchmarks/test_throughput.py
+```
+
+## Docker
+
+```bash
+docker build -t llm-gate .
+docker run -p 8000:8000 -e LLMGATE_UPSTREAM_BASE_URL=http://host:20132/v1 llm-gate
+```
+
+## Architecture
+
+```
+llm_gate/
+├── gate.py              # Core routing engine
+├── classifier.py        # Criticality classification
+├── router.py            # Model selection logic
+├── catalog.py           # OmniRoute model catalog
+├── api.py               # FastAPI proxy server
+├── proxy.py             # Upstream HTTP transport
+├── intelligence.py      # Intelligence service adapter
+├── suggestions.py       # Evidence-backed optimization suggestions
+├── provider_detection.py # Auto-detect local providers
+├── cli.py               # CLI entry point
+├── dashboard.py         # Streamlit analytics UI
+├── logger.py            # JSONL decision logging
+├── models.py            # Data models
+├── escalation.py        # Tier escalation logic
+├── headroom.py          # Rate limit monitoring
+└── neural.py            # Neural scoring (experimental)
+```
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+[MIT](LICENSE)

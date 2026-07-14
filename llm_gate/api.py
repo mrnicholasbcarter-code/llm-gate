@@ -293,7 +293,8 @@ async def route_task_alias(req: RouteRequest) -> dict[str, Any]:
     """Convenience alias matching the integration test client path."""
     response = await route_task(req)
     if isinstance(response, JSONResponse):
-        return json.loads(response.body.decode("utf-8"))
+        body: bytes = bytes(response.body)
+        return dict(json.loads(body.decode("utf-8")))
     return {"error": "unexpected response"}
 
 
