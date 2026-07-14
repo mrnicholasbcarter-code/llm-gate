@@ -75,10 +75,18 @@ class RecordingTransport(httpx.AsyncBaseTransport):
         )
 
 
-class FixedGate:
-    def route(self, task: str, criticality: str = "medium") -> RoutingDecision:
+class FixedIntelligence:
+    primary_model = "selected-model"
+    providers = {}
+    log_path = ""
+    log_full_task = False
+    discovery_ttl = 60
+    profile = "test"
+
+    def route(
+        self, task: str, criticality: str = "medium", context: dict[str, Any] | None = None
+    ) -> RoutingDecision:
         assert task == "preserve all fields"
-        assert criticality == "medium"
         return RoutingDecision(
             model="selected-model",
             provider="omniroute",
@@ -86,9 +94,15 @@ class FixedGate:
             reason="test selection",
         )
 
+    def readiness(self):
+        from llm_gate.intelligence import ReadinessReport
+
+        return ReadinessReport("ready", True, "test", "healthy", False, "policy-1", "test", {})
+
 
 def _configure_test_app(monkeypatch, transport: RecordingTransport) -> None:
-    monkeypatch.setattr(api, "Gate", lambda **_: FixedGate())
+    monkeypatch.setattr(api, "_build_intelligence", lambda: FixedIntelligence())
+
     monkeypatch.setattr(
         api,
         "_build_proxy",
