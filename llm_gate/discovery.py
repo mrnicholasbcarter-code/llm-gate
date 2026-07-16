@@ -10,6 +10,34 @@ from llm_gate.models import ModelInfo, ProviderConfig
 _CACHE: dict[str, dict[str, float | list[ModelInfo]]] = {}
 
 
+def normalize_model_record(provider_name: str, record: object) -> ModelInfo | None:
+    """Normalize common public catalog row shapes without asserting runtime health."""
+    if not isinstance(record, dict):
+        return None
+    model_id = record.get("id") or record.get("name")
+    if not isinstance(model_id, str) or not model_id:
+        return None
+    raw_capabilities = record.get("capabilities", {})
+    if isinstance(raw_capabilities, dict):
+        capabilities = frozenset(key for key, value in raw_capabilities.items() if value is True)
+        context = raw_capabilities.get("context", record.get("context_window", -1))
+    elif isinstance(raw_capabilities, (list, tuple, set, frozenset)):
+        capabilities = frozenset(item for item in raw_capabilities if isinstance(item, str))
+        context = record.get("context_window", -1)
+    else:
+        capabilities, context = frozenset(), record.get("context_window", -1)
+    return ModelInfo(
+        id=model_id,
+        provider=provider_name,
+        capability_tier=classify(model_id),
+        context_window=context if isinstance(context, int) else -1,
+        capabilities=capabilities,
+        is_available=False,
+        availability_state="unknown",
+        source="catalog",
+    )
+
+
 def fetch_models(provider_name: str, config: ProviderConfig, ttl: int = 60) -> list[ModelInfo]:
     now = time.time()
     cached = _CACHE.get(provider_name)
@@ -31,10 +59,9 @@ def fetch_models(provider_name: str, config: ProviderConfig, ttl: int = 60) -> l
             data = json.loads(response.read().decode())
             models = []
             for m in data.get("data", []):
-                mid = m.get("id")
-                if mid:
-                    tier = classify(mid)
-                    models.append(ModelInfo(id=mid, provider=provider_name, capability_tier=tier))
+                model = normalize_model_record(provider_name, m)
+                if model is not None:
+                    models.append(model)
             _CACHE[provider_name] = {"ts": now, "models": models}
             return models
     except Exception:

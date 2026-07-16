@@ -1,0 +1,94 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from llm_gate.availability import (
+    AvailabilityState,
+    CandidateRequirements,
+    RuntimeObservation,
+    explain_candidates,
+    normalize_observation,
+    select_capable_candidates,
+)
+from llm_gate.models import ModelInfo
+
+NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
+
+
+def test_stale_observation_becomes_unknown() -> None:
+    observation = RuntimeObservation(
+        observed_at=datetime(2026, 7, 16, 11, 58, tzinfo=timezone.utc),
+        ttl_seconds=60,
+        health="healthy",
+        quota_remaining_pct=80,
+        source="fixture:omniroute-api",
+    )
+
+    candidate = normalize_observation(
+        ModelInfo(id="provider/model", provider="provider", capability_tier=2), observation, now=NOW
+    )
+
+    assert candidate.state is AvailabilityState.UNKNOWN
+    assert "stale observation" in candidate.reasons
+
+
+def test_runtime_states_distinguish_quota_cooldown_and_auth() -> None:
+    base = dict(
+        observed_at=NOW,
+        ttl_seconds=60,
+        source="fixture",
+        health="healthy",
+    )
+    assert normalize_observation(
+        ModelInfo(id="a", provider="p", capability_tier=2),
+        RuntimeObservation(**base, quota_remaining_pct=0),
+        now=NOW,
+    ).state is AvailabilityState.QUOTA_EXHAUSTED
+    assert normalize_observation(
+        ModelInfo(id="b", provider="p", capability_tier=2),
+        RuntimeObservation(**base, cooldown_until="2026-07-16T12:05:00Z"),
+        now=NOW,
+    ).state is AvailabilityState.RATE_LIMITED
+    assert normalize_observation(
+        ModelInfo(id="c", provider="p", capability_tier=2),
+        RuntimeObservation(**base, auth="unauthorized"),
+        now=NOW,
+    ).state is AvailabilityState.UNAUTHORIZED
+
+
+def test_capability_filter_is_deterministic_and_explains_exclusions() -> None:
+    candidates = [
+        ModelInfo(id="p/vision", provider="p", capability_tier=1, capabilities=frozenset({"vision", "tools"})),
+        ModelInfo(id="p/tools", provider="p", capability_tier=1, capabilities=frozenset({"tools"})),
+    ]
+    requirements = CandidateRequirements(required=frozenset({"vision", "tools"}))
+    states = [
+        normalize_observation(
+            candidates[0], RuntimeObservation(observed_at=NOW, source="fixture", health="healthy"), now=NOW
+        ),
+        normalize_observation(
+            candidates[1], RuntimeObservation(observed_at=NOW, source="fixture", health="healthy"), now=NOW
+        ),
+    ]
+
+    eligible = select_capable_candidates(states, requirements)
+    explanation = explain_candidates(states, requirements)
+
+    assert [item.model.id for item in eligible] == ["p/vision"]
+    assert explanation == [
+        {"model": "p/tools", "state": "capability_mismatch", "rejected": True, "reason": "missing capability: vision"},
+        {"model": "p/vision", "state": "eligible", "rejected": False, "reason": "eligible"},
+    ]
+
+
+def test_unknown_is_not_eligible_for_protected_work() -> None:
+    state = normalize_observation(
+        ModelInfo(id="p/model", provider="p", capability_tier=1),
+        RuntimeObservation(observed_at=NOW, source="fixture", health="unknown"),
+        now=NOW,
+    )
+
+    assert select_capable_candidates(
+        [state], CandidateRequirements(protected=True)
+    ) == []
+    assert state.state is AvailabilityState.UNKNOWN

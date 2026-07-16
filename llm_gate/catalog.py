@@ -47,6 +47,8 @@ def normalize_catalog(
         normalized = dict(row)
 
         capabilities = row.get("capabilities", {})
+        if not isinstance(capabilities, dict):
+            capabilities = {}
         is_claude = "claude" in model_id.lower()
         is_gpt4 = "gpt-4" in model_id.lower()
         is_gemini = "gemini" in model_id.lower()
@@ -67,12 +69,12 @@ def normalize_catalog(
             "capability_profile": {
                 "tier": classify(model_id),
                 "context": capabilities.get("context", 128000),
-                "tools": True,
-                "structured_output": True,
+                "tools": capabilities.get("tools", True),
+                "structured_output": capabilities.get("structured_output", True),
                 "vision": bool(
                     capabilities.get("vision") or is_gpt4 or "claude-3" in model_id.lower()
                 ),
-                "streaming": True,
+                "streaming": capabilities.get("streaming", True),
                 "reasoning": "o1" in model_id.lower() or "-r1" in model_id.lower(),
                 "provider": provider_name,
                 "model_family": family,

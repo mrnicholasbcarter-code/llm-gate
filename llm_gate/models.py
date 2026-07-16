@@ -129,8 +129,20 @@ class ModelInfo:
     capabilities: frozenset[str] = field(default_factory=frozenset)
     """Declared capability flags such as tools, vision, or structured output."""
 
-    availability_state: str = "ready"
-    """Normalized availability state: ready, degraded, unknown, or denied."""
+    availability_state: str = "eligible"
+    """Normalized state; ``eligible`` requires runtime evidence, unlike catalog presence."""
+
+    observed_at: str | None = None
+    """RFC3339 runtime observation timestamp, when available."""
+
+    expires_at: str | None = None
+    """RFC3339 freshness deadline for the runtime observation."""
+
+    source: str = "unknown"
+    """Public adapter source which supplied the observation."""
+
+    confidence: float | None = None
+    """Adapter confidence in the normalized observation."""
 
     quality_confidence: float | None = None
     """Observed or inferred quality confidence for scoring."""
