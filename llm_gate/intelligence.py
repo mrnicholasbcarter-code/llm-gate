@@ -6,6 +6,7 @@ from llm_gate.discovery import fetch_models
 from llm_gate.escalation import scan
 from llm_gate.logger import log_decision
 from llm_gate.models import ProviderConfig, RoutingDecision
+from llm_gate.planner import StructuredPlanner
 from llm_gate.router import select_best_model
 
 DEFAULT_PROFILE = "development"
@@ -39,6 +40,7 @@ class IntelligenceService:
         timeout_ms: int = 1000,
         frontier_allowlist: tuple[str, ...] | None = None,
         allow_client_model_override: bool = False,
+        planner: StructuredPlanner | None = None,
     ):
         self.primary_model = primary_model
         self.providers = providers
@@ -51,6 +53,7 @@ class IntelligenceService:
         self.timeout_ms = timeout_ms
         self.frontier_allowlist = frontier_allowlist
         self.allow_client_model_override = allow_client_model_override
+        self.planner = planner or StructuredPlanner()
         self.managed_backend_status = self._probe_managed_backend()
         self._policy_version = "policy-2026-07-13.1"
 
@@ -114,6 +117,15 @@ class IntelligenceService:
         # Fallback to strict heuristic scan
         eff_tier, heuristic_reason = scan(task)
 
+        # Planning estimates task capability needs. Criticality is retained as a
+        # safety floor, not as a model selector: identical task semantics have
+        # identical selection requirements unless a protected floor applies.
+        try:
+            task_spec = self.planner.plan(task, context=context, criticality=criticality).task_spec
+            task_tier = {"low": 3, "medium": 2, "high": 1}.get(task_spec.effort, 2)
+        except Exception:
+            task_tier = 2
+
         # Convert criticality string to required tier max
         tier_map = {"critical": 0, "high": 1, "medium": 2, "low": 3}
         req_tier = tier_map.get(criticality.lower(), 2)
@@ -126,7 +138,8 @@ class IntelligenceService:
             esc_reason = heuristic_reason or ""
             escalated = True
 
-        final_tier = eff_tier if eff_tier is not None and eff_tier < req_tier else req_tier
+        safety_floor = req_tier if req_tier <= 1 else 3
+        final_tier = min(task_tier, safety_floor, eff_tier if eff_tier is not None else 3)
 
         candidates = []
         for name, cfg in self.providers.items():

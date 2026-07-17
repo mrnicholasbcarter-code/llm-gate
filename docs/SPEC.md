@@ -480,4 +480,7 @@ These are explicitly out of scope for the initial release:
 
 ## 13. Origin
 
-This library was extracted from a production event-driven algorithmic trading system where routing LLM tasks across 15+ providers reduced API costs by ~60% while maintaining code quality for critical money-path operations. The original system (closed-source) has been routing thousands of decisions daily since early 2026.
+This repository documents and implements the open-source library and alpha proxy
+shown above. Historical system context is intentionally not presented as
+independent production evidence for this project; use the checked-in tests,
+demo, release gates, and benchmark methodology as the verifiable evidence.

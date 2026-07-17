@@ -1,7 +1,4 @@
-"""llm-gate: Route LLM tasks by criticality.
-
-Never send prod code to a cheap model. Never burn $20/hr on formatting.
-"""
+"""Public llm-gate contracts, routing, planning, and availability interfaces."""
 
 from llm_gate.availability import (
     AvailabilityCandidate,
@@ -26,11 +23,31 @@ from llm_gate.contracts import (
     VerificationPlan,
     WorkflowPlan,
 )
+from llm_gate.dispatcher import (
+    AssignmentExplanation,
+    Dispatcher,
+    DispatchPolicy,
+    DispatchResult,
+    SwarmDispatcher,
+)
 from llm_gate.gate import Gate
 from llm_gate.intelligence import IntelligenceService, ReadinessReport
 from llm_gate.models import ModelInfo, ProviderConfig, RoutingDecision
+from llm_gate.planner import (
+    FailureClass,
+    IntakePlanner,
+    PlannerPolicy,
+    PlanningResult,
+    PlanningUnavailable,
+    PlanRejected,
+    PlanResult,
+    StructuredPlanner,
+    WorkflowKind,
+    WorkflowSelector,
+)
 
 __all__ = [
+    "AssignmentExplanation",
     "AvailabilityCandidate",
     "AvailabilityReport",
     "AvailabilitySnapshot",
@@ -38,14 +55,24 @@ __all__ = [
     "CandidateRequirements",
     "CapabilityRequirement",
     "ContractValidationError",
+    "DispatchPolicy",
+    "DispatchResult",
+    "Dispatcher",
+    "FailureClass",
     "FallbackAttempt",
     "Gate",
+    "IntakePlanner",
     "IntelligenceService",
     "LearningEvent",
     "ModelInfo",
     "OmniRouteAvailabilityAdapter",
     "OmniRouteTransport",
     "OutcomeEvent",
+    "PlanRejected",
+    "PlanResult",
+    "PlannerPolicy",
+    "PlanningResult",
+    "PlanningUnavailable",
     "ProviderConfig",
     "ReadinessReport",
     "RoutingDecision",
@@ -53,8 +80,13 @@ __all__ = [
     "RuntimeCandidate",
     "RuntimeObservation",
     "StaticOmniRouteTransport",
+    "StructuredPlanner",
+    "SwarmDispatcher",
     "TaskSpec",
     "VerificationPlan",
+    "WorkflowKind",
     "WorkflowPlan",
+    "WorkflowSelector",
 ]
+
 __version__ = "0.1.0"

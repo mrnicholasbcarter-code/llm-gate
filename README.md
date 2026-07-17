@@ -1,261 +1,151 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License">
-  <a href="https://github.com/mrnicholasbcarter-code/llm-gate/actions"><img src="https://img.shields.io/github/actions/workflow/status/mrnicholasbcarter-code/llm-gate/ci.yml?style=flat-square&label=CI" alt="CI"></a>
-  <a href="https://pypi.org/project/llm-gate/"><img src="https://img.shields.io/pypi/v/llm-gate?style=flat-square" alt="PyPI"></a>
-</p>
+# llm-gate
 
-<h1 align="center">llm-gate</h1>
 <p align="center"><b>Policy-safe, availability-aware LLM routing and workflow orchestration.</b></p>
 
----
+[![CI](https://img.shields.io/github/actions/workflow/status/mrnicholasbcarter-code/llm-gate/ci.yml?style=flat-square&label=CI)](https://github.com/mrnicholasbcarter-code/llm-gate/actions)
+[![PyPI](https://img.shields.io/pypi/v/llm-gate?style=flat-square)](https://pypi.org/project/llm-gate/)
 
-**llm-gate** is a Python library and local OpenAI-compatible proxy that first understands what a task requires, then selects among models and workflows that are actually capable, healthy, policy-compliant, and usable now. It combines deterministic safety gates with live provider availability, bounded adaptive advice, verification, and explainable decisions. Criticality remains a safety input—not the routing algorithm.
+`llm-gate` is an alpha Python library and local OpenAI-compatible proxy. It
+normalizes a task into a versioned `TaskSpec`, applies deterministic policy,
+capability, privacy, budget, and availability gates, and explains the eligible
+candidate set. Adaptive intelligence is advisory: it may rank eligible
+candidates, but it cannot bypass a hard gate.
+
+> **Status:** The deterministic contracts and availability adapter are usable
+> now. The proxy and managed intelligence integration remain alpha slices. This
+> repository does not claim production readiness, provider uptime, or a
+> particular routing latency.
+
+## See the decision, without credentials
+
+The flagship walkthrough is deterministic and makes no network calls:
+
+```bash
+python scripts/flagship_demo.py
+```
+
+It constructs a `TaskSpec`, evaluates four in-memory runtime observations,
+selects one eligible candidate, and reports why the other three were excluded
+(missing capability, exhausted quota, and unknown health). The output is stable
+across runs. See [the reproducible demo guide](docs/DEMO.md).
+
+## Install and use the library
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+Compatibility routing remains available through `Gate`; it defaults to the
+explicit development/degraded profile:
 
 ```python
 from llm_gate import Gate
 
 gate = Gate()
-decision = gate.route("Rewrite the auth module", criticality="high")  # compatibility input
-print(decision.model)   # anthropic/claude-sonnet-4-20250514
-print(decision.reason)  # includes requirements, eligibility, and verification evidence
+decision = gate.route("Rewrite the auth module", criticality="high")
+print(decision.model)
+print(decision.reason)
 ```
 
-## Why llm-gate?
+The `criticality` argument is a compatibility input, not the routing algorithm.
+New integrations should use `TaskSpec` and `RoutingDecisionContract` (see
+[contract migration](docs/contracts-migration.md)).
 
-| Problem | llm-gate solution |
-|---|---|
-| Accidentally routing sensitive code to weak models | Deterministic policy floor plus capability, privacy, and live-availability gates |
-| Manually switching API keys between providers | Auto-detection of local servers, CLI tools, API keys, and routers |
-| No visibility into routing decisions | JSONL decision logging, analytics CLI, and Streamlit dashboard |
-| Vendor lock-in | OpenAI-compatible proxy works with any client (Cursor, Aider, Claude Code, etc.) |
-| Cost blowups | Headroom monitoring and intelligent model selection |
+## Local proxy (alpha)
 
-## Quick Start
-
-### Install
+The proxy forwards to a configured upstream and is not a bundled model server.
+Use a caller token or Unix socket for non-anonymous operation; keep anonymous
+mode on loopback for development only:
 
 ```bash
-pip install llm-gate
-```
-
-Or from source with all extras:
-
-```bash
-git clone https://github.com/mrnicholasbcarter-code/llm-gate.git
-cd llm-gate
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,server,ui]"
-```
-
-### Setup Wizard
-
-The interactive setup wizard auto-detects your local providers and walks you through configuration:
-
-```bash
-llm-gate setup
-```
-
-```
-┌─ llm-gate Provider Detection ─┐
-│ Scanning for local servers,    │
-│ CLIs, API keys, and routers... │
-└────────────────────────────────┘
- ✓ Ollama detected at localhost:11434 (3 models)
- ✓ OPENAI_API_KEY found
- ✓ ANTHROPIC_API_KEY found
-
- Primary model: anthropic/claude-sonnet-4-20250514
- Add a provider: openai
-   Base URL: https://api.openai.com/v1
-   API key env var: OPENAI_API_KEY
- Add a provider: done
-
- ✓ Configuration saved to llm-gate.yaml
-```
-
-### Route a Task
-
-```bash
-llm-gate route "Fix the SQL injection in user_auth.py" --criticality high
-```
-
-```
-┌─ Routing Decision ─────────────────────────┐
-│ Model:    anthropic/claude-sonnet-4-20250514│
-│ Status:   eligible                          │
-│ Reason:   Capability + health + quota fit   │
-│ Verify:   required                           │
-└─────────────────────────────────────────────┘
-```
-
-### Run as a Proxy Server
-
-Production server startup requires a caller bearer token (or a Unix socket). Bind the public/container example explicitly and provide a token:
-
-```bash
-export LLMGATE_AUTH_TOKEN='change-this-to-a-long-random-token'
+export LLMGATE_AUTH_TOKEN='use-a-long-random-token'
 export LLMGATE_HOST=127.0.0.1
 export LLMGATE_UPSTREAM_BASE_URL=https://api.openai.com/v1
-export OPENAI_API_KEY=sk-...
+export OPENAI_API_KEY='set-this-in-your-shell-not-in-a-request'
 llm-gate serve --host 127.0.0.1 --port 8000
 ```
-
-For an explicitly anonymous development server, use only loopback:
 
 ```bash
 LLMGATE_ALLOW_ANONYMOUS=true llm-gate serve --host 127.0.0.1 --port 8000
 ```
 
-Then point your tools at `http://localhost:8000/v1`:
+Anonymous mode is rejected on non-loopback addresses. The proxy owns upstream
+configuration and credentials; client-supplied upstream URLs and credentials
+are not accepted. Review [SECURITY.md](SECURITY.md) and the
+[release acceptance matrix](docs/specs/RELEASE_ACCEPTANCE.md) before connecting
+real provider credentials.
 
-```bash
-# Works with curl
-curl http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model": "gpt-4o", "messages": [{"role": "user", "content": "Hello"}]}'
+## What is implemented
 
-# Works with any OpenAI SDK client
-export OPENAI_BASE_URL=http://localhost:8000/v1
+- Versioned, strict contracts: `TaskSpec`, runtime candidates, availability
+  snapshots, workflow plans, and explainable routing decisions.
+- Protocol-based catalog/runtime adapter with deterministic normalization of
+  healthy, degraded, unknown, denied, stale, quota, auth, and timeout states.
+- Hard-gate candidate filtering for capabilities, provider/model policy, budget,
+  concurrency, freshness, and protected work.
+- Explain-only endpoint (`POST /v1/route`), model listing, health/readiness,
+  request-size limits, redacted decision events, and transparent proxy fields.
+- A deterministic local safety floor and an explicit production readiness check
+  for the managed intelligence profile.
+
+## What is not claimed yet
+
+- No guarantee that a provider is available, affordable, fast, or high quality.
+- No claim that the alpha proxy is a drop-in production gateway.
+- No benchmark result is a service-level objective; benchmark methodology and
+  result recording are documented in [BENCHMARKS.md](docs/BENCHMARKS.md).
+- No automatic policy mutation from suggestions or learned signals.
+
+## Routing model
+
+```text
+Request → TaskSpec → hard gates → eligible candidates → optional ranking
+                                      │
+                         explain exclusions and selection
 ```
 
-## CLI Commands
+Hard gates run before ranking. A catalog row is not proof of live eligibility;
+runtime evidence is normalized with an explicit freshness window. Decisions are
+intended to be deterministic for identical inputs, policy version, catalog
+state, and learned-policy snapshot.
 
-| Command | Description |
+## CLI and integrations
+
+| Command | Purpose |
 |---|---|
-| `llm-gate setup` | Interactive setup wizard with auto-detection |
-| `llm-gate route <task>` | Route a single prompt with explanation |
-| `llm-gate serve` | Launch OpenAI-compatible proxy server |
-| `llm-gate detect` | Scan for available LLM providers |
-| `llm-gate stats` | View routing analytics from decision logs |
-| `llm-gate suggest` | Get evidence-backed optimization suggestions |
-| `llm-gate ui` | Launch Streamlit analytics dashboard |
+| `llm-gate route <task>` | Compatibility route with explanation |
+| `llm-gate serve` | Alpha OpenAI-compatible proxy |
+| `llm-gate detect` | Inspect locally discoverable providers |
+| `llm-gate stats` | Read local decision-log analytics |
+| `llm-gate suggest` | Show read-only evidence-backed suggestions |
 
-## Proxy Features
+The proxy can be paired with OpenAI-compatible clients. See
+[`docs/integrations/`](docs/integrations/) for client-specific notes; each
+integration page should be read as compatibility guidance, not a production
+certification.
 
-- **`POST /v1/chat/completions`** with streaming support and model rewriting
-- **`GET /v1/models`** with local allow/deny filtering via `LLMGATE_MODEL_ALLOWLIST` / `LLMGATE_MODEL_DENYLIST`
-- **`POST /v1/route`** explain-only routing decisions without forwarding
-- **`GET /health`** and upstream-aware **`GET /ready`**
-- Request-size enforcement via `LLMGATE_MAX_REQUEST_BYTES`
-- Server-owned upstream auth (client keys are never forwarded)
-- Unknown fields, tools, response-format, and usage preserved transparently
-
-## How Routing Works
-
-```
-Request → Planner → TaskSpec → Hard Gates → Eligible Candidates → Adaptive Route
-                                      │                              │
-                              policy, privacy,              model/workflow choice
-                              capability, health,             among eligible options
-                              quota, budget, risk
-                                      │                              │
-                                      └────────→ Execute → Verify → Learn
-```
-
-1. **Planning** determines objective, effort, required capabilities, tools, workflow shape, risk, budget, and verification.
-2. **Hard gates** reject unsafe, incompatible, stale, unhealthy, locked-out, or quota-exhausted candidates.
-3. **Adaptive selection** ranks only eligible candidates using task fit, quality, cost, latency, reliability, and bounded learned evidence.
-4. **Execution and verification** run the selected model/workflow, validate outcomes, and record redacted evidence for future improvement.
-
-## Configuration
-
-Create `llm-gate.yaml` (or use `llm-gate setup`):
-
-```yaml
-primary_model: anthropic/claude-sonnet-4-20250514
-log_path: decisions.jsonl
-
-providers:
-  anthropic:
-    base_url: https://api.anthropic.com/v1
-    api_key_env: ANTHROPIC_API_KEY
-  openai:
-    base_url: https://api.openai.com/v1
-    api_key_env: OPENAI_API_KEY
-  ollama:
-    base_url: http://localhost:11434/v1
-```
-
-## Integrations
-
-llm-gate works as a transparent proxy with any OpenAI-compatible client:
-
-- **[Cursor / VS Code](docs/integrations/cursor-vscode.md)** - Set base URL in settings
-- **[Aider](docs/integrations/aider.md)** - `--openai-api-base http://localhost:8000/v1`
-- **[Claude Code](docs/integrations/claude-code-hook.md)** - Hook-based integration
-- **[LiteLLM](docs/integrations/litellm.md)** - Use as upstream proxy
-- **[OpenHands](docs/integrations/openhands.md)** - Environment variable config
-- **[Any OpenAI SDK](docs/integrations/universal-agnostic.md)** - Just change the base URL
-
-See [docs/integrations/](docs/integrations/) for the full list.
-
-## Intelligence and Suggestions
-
-After accumulating routing decisions, llm-gate can mine your history for optimization insights:
+## Development and verification
 
 ```bash
-llm-gate suggest
+.venv/bin/python scripts/flagship_demo.py
+.venv/bin/pytest -q
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
+.venv/bin/mypy llm_gate --strict
 ```
 
-```
-┌─ llm-gate Intelligence Suggestions ─┐
-
- High Latency Routing Detected (SUG-LAT-001)
- Category: Performance | Expires In: 7d
- Over 10 requests routed to slow-model with latency > 2500ms.
- Proposed: Evaluate adding a lightweight T3 provider.
- Confidence: 92.0% | Impact: High
-
-───
-```
-
-Suggestions are read-only, never mutate policy automatically, and require explicit approval before any action.
-
-## Development
-
-```bash
-# Run tests
-pytest tests/ -v
-
-# Lint and format
-ruff check . --fix && ruff format .
-
-# Type check
-mypy llm_gate --strict
-
-# Run benchmarks
-python benchmarks/test_throughput.py
-```
-
-## Docker
-
-```bash
-docker build -t llm-gate .
-docker run -p 8000:8000 -e LLMGATE_UPSTREAM_BASE_URL=http://host:20132/v1 llm-gate
-```
+The CI workflow also runs package, security, and install smoke checks. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance.
 
 ## Architecture
 
-```
-llm_gate/
-├── gate.py              # Core routing engine
-├── classifier.py        # Criticality classification
-├── router.py            # Model selection logic
-├── catalog.py           # OmniRoute model catalog
-├── api.py               # FastAPI proxy server
-├── proxy.py             # Upstream HTTP transport
-├── intelligence.py      # Intelligence service adapter
-├── suggestions.py       # Evidence-backed optimization suggestions
-├── provider_detection.py # Auto-detect local providers
-├── cli.py               # CLI entry point
-├── dashboard.py         # Streamlit analytics UI
-├── logger.py            # JSONL decision logging
-├── models.py            # Data models
-├── escalation.py        # Tier escalation logic
-├── headroom.py          # Rate limit monitoring
-└── neural.py            # Neural scoring (experimental)
-```
+- `llm_gate/contracts.py` — strict versioned JSON-compatible contracts
+- `llm_gate/availability.py` — runtime normalization and eligibility gates
+- `llm_gate/intelligence.py` — deterministic floor and managed-adapter boundary
+- `llm_gate/api.py` / `llm_gate/proxy.py` — alpha HTTP and upstream transport
+- `scripts/flagship_demo.py` — credential-free public evidence fixture
 
 ## License
 
