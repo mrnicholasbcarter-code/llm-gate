@@ -243,8 +243,8 @@ class StructuredPlanner:
         context = request.get("context")
         context_text = " ".join(str(value) for value in (context.values() if isinstance(context, dict) else ())).lower()
         combined = f"{lower} {context_text}"
-
-            keyword in lower for keyword in self.policy.protected_keywords
+        protected = any(
+            keyword in combined for keyword in self.policy.protected_keywords
         )
         steps: list[dict[str, Any]]
         if any(word in lower for word in ("parallel", "independent specialists")):
@@ -257,7 +257,7 @@ class StructuredPlanner:
             effort = "high"
         if any(word in combined for word in ("research", "investigate")) and any(
             word in combined for word in ("implement", "build", "write", "code")
-
+        ):
             kind = WorkflowKind.RESEARCH_IMPLEMENT
             steps = [
                 {"action": "research", "verification": "sources"},
