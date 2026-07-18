@@ -60,6 +60,10 @@ def test_upstream_rejects_credentials_unsafe_schemes_and_private_hosts() -> None
         UpstreamProxy("https://user:password@example.com/v1")
     with pytest.raises(ValueError, match="private"):
         UpstreamProxy("https://169.254.169.254/latest/meta-data")
+    with pytest.raises(ValueError, match="private"):
+        UpstreamProxy("https://100.64.0.1/v1")
+    with pytest.raises(ValueError, match="private"):
+        UpstreamProxy("https://224.0.0.1/v1")
 
 
 def test_redaction_removes_secrets_from_exception_text() -> None:

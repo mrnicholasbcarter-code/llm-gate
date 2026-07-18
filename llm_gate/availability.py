@@ -169,6 +169,10 @@ class OmniRouteTransportMalformed(OmniRouteTransportError):  # noqa: N818 - publ
     """Transport returned malformed data for a documented OmniRoute operation."""
 
 
+class OmniRouteTransportUnauthorized(OmniRouteTransportError):  # noqa: N818 - public API
+    """Transport credentials were missing, invalid, or insufficient."""
+
+
 class OmniRouteTransportUnsupported(OmniRouteTransportError):  # noqa: N818 - public API
     """Transport does not implement a documented OmniRoute operation."""
 
@@ -205,6 +209,15 @@ class CallableOmniRouteTransport:
         self._catalog = catalog
         self._runtime = runtime
         self._discover_capabilities = discover_capabilities
+        self.configured_operations = frozenset(
+            operation
+            for operation, configured in (
+                ("catalog", catalog is not None),
+                ("runtime", runtime is not None),
+                ("discover_capabilities", discover_capabilities is not None),
+            )
+            if configured
+        )
 
     def catalog(self) -> Any:
         if self._catalog is None:
@@ -235,6 +248,15 @@ class MappingOmniRouteTransport:
                 unsupported[0],
                 f"unsupported operation; expected one of {', '.join(SUPPORTED_TRANSPORT_OPERATIONS)}",
             )
+        self.configured_operations = frozenset(
+            operation
+            for operation, names in (
+                ("catalog", CATALOG_TRANSPORT_OPERATIONS),
+                ("runtime", RUNTIME_TRANSPORT_OPERATIONS),
+                ("discover_capabilities", CAPABILITY_TRANSPORT_OPERATIONS),
+            )
+            if any(name in self._operations for name in names)
+        )
 
     def _resolve(self, *names: str) -> Any:
         for name in names:
@@ -261,6 +283,7 @@ class StaticOmniRouteTransport:
         self._catalog = catalog
         self._runtime = runtime if runtime is not None else {}
         self._capabilities = capabilities
+        self.configured_operations = frozenset({"catalog", "runtime"})
 
     def catalog(self) -> Any:
         return self._catalog
@@ -362,14 +385,16 @@ def normalize_catalog(rows: Any, capabilities: Any = None) -> list[ModelInfo]:
             continue
         model_id = row["id"]
         provider = str(
-            row.get("provider") or (model_id.split("/", 1)[0] if "/" in model_id else "unknown")
+            row.get("provider")
+            or row.get("owned_by")
+            or (model_id.split("/", 1)[0] if "/" in model_id else "unknown")
         )
         tier = row.get("capability_tier", row.get("tier", 2))
         try:
             tier = int(tier)
         except (TypeError, ValueError):
             tier = 2
-        context = row.get("context_window", row.get("context", -1))
+        context = row.get("context_window", row.get("context_length", row.get("context", -1)))
         try:
             context = int(context)
         except (TypeError, ValueError):
@@ -1026,13 +1051,23 @@ def _call_transport_operation(
 
 
 def discover_transport_capabilities(transport: Any) -> frozenset[str]:
-    operations: set[str] = set()
-    for canonical, names in (
-        ("catalog", CATALOG_TRANSPORT_OPERATIONS),
-        ("runtime", RUNTIME_TRANSPORT_OPERATIONS),
-    ):
-        if any(hasattr(transport, name) for name in names):
-            operations.add(canonical)
+    configured = getattr(transport, "configured_operations", None)
+    configured_limit: set[str] | None = None
+    if isinstance(configured, (list, tuple, set, frozenset)):
+        configured_limit = {
+            str(operation)
+            for operation in configured
+            if str(operation) in {"catalog", "runtime", "discover_capabilities"}
+        }
+        operations = set(configured_limit)
+    else:
+        operations = set()
+        for canonical, names in (
+            ("catalog", CATALOG_TRANSPORT_OPERATIONS),
+            ("runtime", RUNTIME_TRANSPORT_OPERATIONS),
+        ):
+            if any(hasattr(transport, name) for name in names):
+                operations.add(canonical)
     explicit = getattr(transport, "discover_capabilities", None)
     if explicit is not None:
         try:
@@ -1054,15 +1089,16 @@ def discover_transport_capabilities(transport: Any) -> frozenset[str]:
                 advertised = {str(item).strip().lower() for item in payload if str(item).strip()}
                 allowlisted = advertised & set(SUPPORTED_TRANSPORT_OPERATIONS)
                 if allowlisted:
+                    discovered = {
+                        "catalog"
+                        if item in CATALOG_TRANSPORT_OPERATIONS
+                        else "runtime"
+                        if item in RUNTIME_TRANSPORT_OPERATIONS
+                        else "discover_capabilities"
+                        for item in allowlisted
+                    }
                     operations.update(
-                        {
-                            "catalog"
-                            if item in CATALOG_TRANSPORT_OPERATIONS
-                            else "runtime"
-                            if item in RUNTIME_TRANSPORT_OPERATIONS
-                            else "discover_capabilities"
-                            for item in allowlisted
-                        }
+                        discovered if configured_limit is None else discovered & configured_limit
                     )
     return frozenset(sorted(operations))
 
@@ -1098,31 +1134,61 @@ class OmniRouteAvailabilityAdapter:
             return AvailabilityReport(
                 (), (), "omniroute", None, (f"{exc.operation} transport: timeout",)
             )
+        except OmniRouteTransportUnauthorized as exc:
+            return AvailabilityReport(
+                (), (), "omniroute", None, (f"{exc.operation} transport: unauthorized",)
+            )
         except OmniRouteTransportUnsupported as exc:
             return AvailabilityReport((), (), "omniroute", None, (str(exc),))
-        except OmniRouteTransportError as exc:
+        except OmniRouteTransportMalformed as exc:
             return AvailabilityReport(
                 (), (), "omniroute", None, (f"{exc.operation} transport: malformed",)
             )
+        except OmniRouteTransportError as exc:
+            return AvailabilityReport(
+                (), (), "omniroute", None, (f"{exc.operation} transport: unavailable",)
+            )
+        runtime_failure_state: AvailabilityState | None = None
         try:
             runtime = _call_transport_operation(self.transport, RUNTIME_TRANSPORT_OPERATIONS)
         except OmniRouteTransportTimeout:
             runtime, errors = {}, ["runtime transport: timeout"]
+            runtime_failure_state = AvailabilityState.TIMEOUT
+        except OmniRouteTransportUnauthorized:
+            runtime, errors = {}, ["runtime transport: unauthorized"]
+            runtime_failure_state = AvailabilityState.UNAUTHORIZED
         except OmniRouteTransportUnsupported as exc:
             runtime, errors = {}, [str(exc)]
-        except OmniRouteTransportError:
+        except OmniRouteTransportMalformed:
             runtime, errors = {}, ["runtime transport: malformed"]
+            runtime_failure_state = AvailabilityState.MALFORMED
+        except OmniRouteTransportError:
+            runtime, errors = {}, ["runtime transport: unavailable"]
+            runtime_failure_state = AvailabilityState.UNAVAILABLE
         mapping = runtime if isinstance(runtime, Mapping) else {}
         malformed_runtime = runtime is not None and not isinstance(runtime, Mapping)
-        timed_out = any("timeout" in error for error in errors)
+
+        def runtime_value(model: ModelInfo) -> object:
+            keys = [model.id]
+            if model.provider not in {"", "unknown"}:
+                suffix = model.id.split("/", 1)[-1]
+                canonical = f"{model.provider}/{suffix}"
+                if canonical not in keys:
+                    keys.append(canonical)
+            keys.extend((model.provider, "default"))
+            for key in keys:
+                if key in mapping:
+                    return mapping[key]
+            return {}
+
         states = []
         for model in catalog:
-            if timed_out:
+            if runtime_failure_state is not None:
                 states.append(
                     AvailabilityCandidate(
                         model,
-                        AvailabilityState.TIMEOUT,
-                        ("runtime transport timeout",),
+                        runtime_failure_state,
+                        (errors[0],),
                         None,
                         "omniroute",
                         None,
@@ -1141,7 +1207,7 @@ class OmniRouteAvailabilityAdapter:
                     )
                 )
                 continue
-            value = mapping.get(model.id, mapping.get(model.provider, mapping.get("default", {})))
+            value = runtime_value(model)
             states.append(normalize_observation(model, _raw_observation(value), now=current))
         # Request capacity and concurrency are hard runtime gates, not ranking hints.
         for index, item in enumerate(states):
@@ -1150,11 +1216,7 @@ class OmniRouteAvailabilityAdapter:
                     continue
             elif item.state not in {AvailabilityState.READY, AvailabilityState.DEGRADED}:
                 continue
-            raw = _raw_observation(
-                mapping.get(
-                    item.model.id, mapping.get(item.model.provider, mapping.get("default", {}))
-                )
-            )
+            raw = _raw_observation(runtime_value(item.model))
             reasons = []
             known_costs = [
                 value for value in (requirements.estimated_cost, raw.cost) if value is not None

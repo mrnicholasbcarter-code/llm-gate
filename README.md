@@ -260,6 +260,17 @@ observations; protected work still rejects them. The separate
 `unknown_is_eligible` opt-in admits only fresh, internally consistent
 `unknown` evidence—never missing, stale, malformed, or contradictory data.
 
+For OmniRoute, `OmniRouteHTTPTransport` implements credential-separated,
+bounded `GET` access to the documented `/v1/models`,
+`/api/monitoring/health`, rate-limit, model-cooldown, budget, and token-limit
+operations. Health is the only default runtime source; management and
+usage-scoped reads are explicit opt-ins. The transport disables redirects,
+requires an exact destination allowlist, rejects encoded responses, minimizes
+runtime records, and maps timeout, unauthorized, unavailable, and malformed
+results to typed failures. See the [OmniRoute transport
+guide](docs/integrations/omniroute-9router.md) for the exact operations and
+configuration.
+
 The planner library emits conservative token and cost reservations. Integrations
 compose this alpha contract explicitly by passing
 `StructuredPlanner.availability_requirements(task_spec)` to the availability

@@ -16,6 +16,10 @@ _SECRET_PATTERNS = (
 )
 
 
+def _address_is_restricted(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    return not address.is_global or address.is_multicast
+
+
 @dataclass(frozen=True)
 class ServerSecurity:
     token: str | None
@@ -99,13 +103,10 @@ def validate_upstream_url(base_url: str, *, allow_private_hosts: set[str] | None
         addresses = set()
     if (
         addresses
-        and any(
-            address.is_private or address.is_loopback or address.is_link_local
-            for address in addresses
-        )
+        and any(_address_is_restricted(address) for address in addresses)
         and host not in allowed
     ):
-        raise ValueError("upstream URL targets a private or loopback host not in the allowlist")
+        raise ValueError("upstream URL targets a private or non-public host not in the allowlist")
     return normalized
 
 
@@ -120,8 +121,8 @@ def host_is_allowed(host: str, allow_private_hosts: set[str]) -> bool:
         raise ValueError("upstream hostname could not be resolved") from exc
     for result in results:
         address = ipaddress.ip_address(result[4][0])
-        if address.is_private or address.is_loopback or address.is_link_local:
-            raise ValueError("upstream hostname resolves to a private or loopback address")
+        if _address_is_restricted(address):
+            raise ValueError("upstream hostname resolves to a private or non-public address")
     return True
 
 

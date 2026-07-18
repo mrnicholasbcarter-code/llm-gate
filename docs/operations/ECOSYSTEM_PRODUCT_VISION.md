@@ -120,7 +120,7 @@ This section separates the current alpha foundation from release targets:
 |---|---|
 | Implemented alpha | Python `TaskSpec`, `WorkflowPlan`, `RoutingDecisionContract`, and `OutcomeEvent` contracts; deterministic fixtures and demo |
 | Implemented alpha | Availability normalization, explicit unknown state, and fail-closed contradictory-signal precedence |
-| Implemented alpha | Local adapter-protocol aliases for catalog and injected runtime/capability evidence; no complete live OmniRoute health/quota contract yet |
+| Implemented alpha | Credential-separated OmniRoute HTTP catalog and allowlisted runtime reads, plus callable/mapping seams for configured CLI/MCP/A2A adapters; no single upstream read is treated as complete readiness truth |
 | In progress | Estimated-token/cost normalization, capacity/planner completion, end-to-end enforcement, intelligence, legal retry/fallback, and explanation parity |
 | Planned release gate | Bounded Ruflo workflows/swarms, RuVector advisory retrieval, installer/wizard, cross-language parity, benchmarks, security, packaging, and release evidence |
 

@@ -146,6 +146,23 @@ def test_mapping_transport_supports_documented_alias_operations_and_capability_o
     assert report.candidates[0].state is AvailabilityState.READY
 
 
+def test_catalog_uses_openai_owned_by_and_context_length_fields():
+    models = normalize_catalog(
+        {
+            "data": [
+                {
+                    "id": "bare-model-id",
+                    "owned_by": "omniroute-provider",
+                    "context_length": 131_072,
+                }
+            ]
+        }
+    )
+
+    assert models[0].provider == "omniroute-provider"
+    assert models[0].context_window == 131_072
+
+
 def test_callable_transport_discovers_supported_operations_without_failing_closed():
     transport = CallableOmniRouteTransport(
         catalog=lambda: {"data": [{"id": "p/model", "provider": "p"}]},
@@ -154,6 +171,14 @@ def test_callable_transport_discovers_supported_operations_without_failing_close
     assert discover_transport_capabilities(transport) == frozenset({"catalog", "runtime"})
     report = OmniRouteAvailabilityAdapter(transport).evaluate(now=NOW)
     assert report.eligible[0].model.id == "p/model"
+
+
+def test_transport_discovery_reports_only_configured_callable_and_mapping_operations():
+    callable_transport = CallableOmniRouteTransport(catalog=lambda: {"data": []})
+    mapping_transport = MappingOmniRouteTransport({"list_models": {"data": []}})
+
+    assert discover_transport_capabilities(callable_transport) == frozenset({"catalog"})
+    assert discover_transport_capabilities(mapping_transport) == frozenset({"catalog"})
 
 
 def test_transport_capability_discovery_ignores_unknown_advertised_operations():

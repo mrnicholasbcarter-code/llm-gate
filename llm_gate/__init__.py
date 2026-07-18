@@ -12,6 +12,7 @@ from llm_gate.availability import (
     OmniRouteTransportError,
     OmniRouteTransportMalformed,
     OmniRouteTransportTimeout,
+    OmniRouteTransportUnauthorized,
     OmniRouteTransportUnsupported,
     RuntimeObservation,
     StaticOmniRouteTransport,
@@ -50,6 +51,7 @@ from llm_gate.dispatcher import (
 from llm_gate.gate import Gate
 from llm_gate.intelligence import IntelligenceService, ReadinessReport
 from llm_gate.models import ModelInfo, ProviderConfig, RoutingDecision
+from llm_gate.omniroute import OmniRouteHTTPTransport
 from llm_gate.planner import (
     FailureClass,
     IntakePlanner,
@@ -95,10 +97,12 @@ __all__ = [
     "MappingOmniRouteTransport",
     "ModelInfo",
     "OmniRouteAvailabilityAdapter",
+    "OmniRouteHTTPTransport",
     "OmniRouteTransport",
     "OmniRouteTransportError",
     "OmniRouteTransportMalformed",
     "OmniRouteTransportTimeout",
+    "OmniRouteTransportUnauthorized",
     "OmniRouteTransportUnsupported",
     "OutcomeEpisode",
     "OutcomeEvent",
