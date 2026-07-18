@@ -4,10 +4,14 @@ import pytest
 
 from llm_gate.availability import (
     AvailabilityState,
+    CallableOmniRouteTransport,
     CandidateRequirements,
+    MappingOmniRouteTransport,
     OmniRouteAvailabilityAdapter,
+    OmniRouteTransportUnsupported,
     RuntimeObservation,
     StaticOmniRouteTransport,
+    discover_transport_capabilities,
     normalize_catalog,
     normalize_observation,
 )
@@ -84,6 +88,51 @@ def test_timeout_and_catalog_malformed_data_are_failure_isolated():
     assert report.candidates[0].state is AvailabilityState.TIMEOUT
     assert report.eligible == ()
     assert normalize_catalog({"unexpected": True}) == []
+
+
+def test_mapping_transport_supports_documented_alias_operations_and_capability_overlay():
+    transport = MappingOmniRouteTransport(
+        {
+            "list_models": {"data": [{"id": "p/model", "provider": "p"}]},
+            "get_runtime": {"p/model": {"observed_at": NOW.isoformat(), "health": "healthy"}},
+            "discover_capabilities": {"p/model": ["vision", "tools"]},
+        }
+    )
+    report = OmniRouteAvailabilityAdapter(transport).evaluate(now=NOW)
+    assert report.eligible[0].model.capabilities == frozenset({"vision", "tools"})
+    assert report.candidates[0].state is AvailabilityState.READY
+
+
+def test_callable_transport_discovers_supported_operations_without_failing_closed():
+    transport = CallableOmniRouteTransport(
+        catalog=lambda: {"data": [{"id": "p/model", "provider": "p"}]},
+        runtime=lambda: {"p/model": {"observed_at": NOW.isoformat(), "health": "healthy"}},
+    )
+    assert discover_transport_capabilities(transport) == frozenset({"catalog", "runtime"})
+    report = OmniRouteAvailabilityAdapter(transport).evaluate(now=NOW)
+    assert report.eligible[0].model.id == "p/model"
+
+
+def test_transport_capability_discovery_ignores_unknown_advertised_operations():
+    transport = StaticOmniRouteTransport(
+        {"data": [{"id": "p/model", "provider": "p"}]},
+        {"p/model": {"observed_at": NOW.isoformat(), "health": "healthy"}},
+        capabilities={"operations": ["catalog", "runtime", "delete_everything"]},
+    )
+    assert discover_transport_capabilities(transport) == frozenset({"catalog", "runtime"})
+
+
+def test_mapping_transport_rejects_unsupported_operation_names():
+    with pytest.raises(OmniRouteTransportUnsupported):
+        MappingOmniRouteTransport({"nope": {}})
+
+
+def test_missing_runtime_operation_is_reported_as_typed_transport_error():
+    report = OmniRouteAvailabilityAdapter(
+        MappingOmniRouteTransport({"catalog": {"data": [{"id": "p/model", "provider": "p"}]}})
+    ).evaluate(now=NOW)
+    assert report.errors == ("runtime: expected one of runtime, get_runtime",)
+    assert report.eligible == ()
 
 
 def test_hard_policy_filters_budget_concurrency_and_capability():

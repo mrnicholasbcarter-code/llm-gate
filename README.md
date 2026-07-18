@@ -16,6 +16,26 @@ candidates, but it cannot bypass a hard gate.
 > repository does not claim production readiness, provider uptime, or a
 > particular routing latency.
 
+## OmniRoute documented transport adapter contract
+
+`OmniRouteAvailabilityAdapter` only relies on documented JSON-like transport
+operations. Supported operation names are:
+
+- catalog fetch: `catalog()` or `list_models()`
+- runtime fetch: `runtime()` or `get_runtime()`
+- optional capability discovery: `discover_capabilities()`
+
+Use `StaticOmniRouteTransport` for fixtures, `CallableOmniRouteTransport` to
+adapt API/CLI/MCP/A2A callables, or `MappingOmniRouteTransport` to adapt a
+mapping of pre-fetched operation payloads. Capability discovery is allowlisted:
+only the supported operation names above are honored, and unknown advertised
+operations are ignored rather than trusted.
+
+Transport failures are surfaced as typed adapter errors
+(`OmniRouteTransportUnsupported`, `OmniRouteTransportTimeout`,
+`OmniRouteTransportMalformed`) and converted into failure-isolated availability
+reports instead of leaking transport-specific behavior into routing policy.
+
 ## Five-minute clean-environment quickstart
 
 The fastest clean-room proof is the deterministic flagship demo. It requires no

@@ -8,7 +8,7 @@ transport protocol below.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
@@ -92,6 +92,38 @@ class AvailabilityReport:
     errors: tuple[str, ...] = ()
 
 
+class OmniRouteTransportError(RuntimeError):
+    """Typed documented transport failure for OmniRoute adapter boundaries."""
+
+    def __init__(self, operation: str, detail: str) -> None:
+        self.operation = operation
+        self.detail = detail
+        super().__init__(f"{operation}: {detail}")
+
+
+class OmniRouteTransportTimeout(OmniRouteTransportError):
+    """Transport timed out while fetching a documented OmniRoute operation."""
+
+
+class OmniRouteTransportMalformed(OmniRouteTransportError):
+    """Transport returned malformed data for a documented OmniRoute operation."""
+
+
+class OmniRouteTransportUnsupported(OmniRouteTransportError):
+    """Transport does not implement a documented OmniRoute operation."""
+
+
+CATALOG_TRANSPORT_OPERATIONS = ("catalog", "list_models")
+RUNTIME_TRANSPORT_OPERATIONS = ("runtime", "get_runtime")
+CAPABILITY_TRANSPORT_OPERATIONS = ("discover_capabilities",)
+SUPPORTED_TRANSPORT_OPERATIONS = (
+    *CATALOG_TRANSPORT_OPERATIONS,
+    *RUNTIME_TRANSPORT_OPERATIONS,
+    *CAPABILITY_TRANSPORT_OPERATIONS,
+)
+_MISSING = object()
+
+
 class OmniRouteTransport(Protocol):
     """Documented transport seam; implementations may use API, CLI, MCP, or A2A."""
 
@@ -100,18 +132,92 @@ class OmniRouteTransport(Protocol):
     def runtime(self) -> Any: ...
 
 
+class CallableOmniRouteTransport:
+    """Adapter for API/CLI/MCP/A2A callables implementing documented operations."""
+
+    def __init__(
+        self,
+        *,
+        catalog: Callable[[], Any] | None = None,
+        runtime: Callable[[], Any] | None = None,
+        discover_capabilities: Callable[[], Any] | None = None,
+    ) -> None:
+        self._catalog = catalog
+        self._runtime = runtime
+        self._discover_capabilities = discover_capabilities
+
+    def catalog(self) -> Any:
+        if self._catalog is None:
+            raise OmniRouteTransportUnsupported("catalog", "expected catalog() or list_models()")
+        return self._catalog()
+
+    def runtime(self) -> Any:
+        if self._runtime is None:
+            raise OmniRouteTransportUnsupported("runtime", "expected runtime() or get_runtime()")
+        return self._runtime()
+
+    def discover_capabilities(self) -> Any:
+        if self._discover_capabilities is None:
+            raise OmniRouteTransportUnsupported(
+                "discover_capabilities", "expected discover_capabilities()"
+            )
+        return self._discover_capabilities()
+
+
+class MappingOmniRouteTransport:
+    """Adapter exposing documented OmniRoute operations from a mapping payload."""
+
+    def __init__(self, operations: Mapping[str, Any]) -> None:
+        self._operations = dict(operations)
+        unsupported = sorted(set(self._operations) - set(SUPPORTED_TRANSPORT_OPERATIONS))
+        if unsupported:
+            raise OmniRouteTransportUnsupported(
+                unsupported[0],
+                f"unsupported operation; expected one of {', '.join(SUPPORTED_TRANSPORT_OPERATIONS)}",
+            )
+
+    def _resolve(self, *names: str) -> Any:
+        for name in names:
+            if name not in self._operations:
+                continue
+            value = self._operations[name]
+            return value() if callable(value) else value
+        raise OmniRouteTransportUnsupported(names[0], f"expected one of {', '.join(names)}")
+
+    def catalog(self) -> Any:
+        return self._resolve(*CATALOG_TRANSPORT_OPERATIONS)
+
+    def runtime(self) -> Any:
+        return self._resolve(*RUNTIME_TRANSPORT_OPERATIONS)
+
+    def discover_capabilities(self) -> Any:
+        return self._resolve(*CAPABILITY_TRANSPORT_OPERATIONS)
+
+
 class StaticOmniRouteTransport:
     """Small fake-friendly transport useful for callers and tests."""
 
-    def __init__(self, catalog: Any, runtime: Any = None) -> None:
+    def __init__(self, catalog: Any, runtime: Any = None, capabilities: Any = None) -> None:
         self._catalog = catalog
         self._runtime = runtime if runtime is not None else {}
+        self._capabilities = capabilities
 
     def catalog(self) -> Any:
         return self._catalog
 
     def runtime(self) -> Any:
         return self._runtime
+
+    def list_models(self) -> Any:
+        return self.catalog()
+
+    def get_runtime(self) -> Any:
+        return self.runtime()
+
+    def discover_capabilities(self) -> Any:
+        if self._capabilities is not None:
+            return self._capabilities
+        return self._catalog
 
 
 def _now(value: datetime | None = None) -> datetime:
@@ -154,8 +260,30 @@ def _capabilities(row: Mapping[str, Any]) -> frozenset[str]:
     return frozenset()
 
 
-def normalize_catalog(rows: Any) -> list[ModelInfo]:
+def _capability_mapping(rows: Any) -> Mapping[str, frozenset[str]]:
+    if isinstance(rows, Mapping):
+        rows = rows.get("data", rows.get("models", rows.get("items", rows)))
+        if isinstance(rows, Mapping):
+            result: dict[str, frozenset[str]] = {}
+            for key, value in rows.items():
+                if not isinstance(key, str):
+                    continue
+                payload = value if isinstance(value, Mapping) else {"capabilities": value}
+                result[key] = _capabilities(payload)
+            return result
+    if not isinstance(rows, list):
+        return {}
+    result: dict[str, frozenset[str]] = {}
+    for row in rows:
+        if not isinstance(row, Mapping) or not isinstance(row.get("id"), str):
+            continue
+        result[row["id"]] = _capabilities(row)
+    return result
+
+
+def normalize_catalog(rows: Any, capabilities: Any = None) -> list[ModelInfo]:
     """Normalize common OmniRoute/OpenAI catalog envelopes without trusting them live."""
+    capability_map = _capability_mapping(capabilities)
     if isinstance(rows, Mapping):
         rows = rows.get("data", rows.get("models", rows.get("items", [])))
     if not isinstance(rows, list):
@@ -184,7 +312,7 @@ def normalize_catalog(rows: Any) -> list[ModelInfo]:
                 provider=provider,
                 capability_tier=tier,
                 context_window=context,
-                capabilities=_capabilities(row),
+                capabilities=capability_map.get(model_id, _capabilities(row)),
                 is_available=False,
                 availability_state=AvailabilityState.UNKNOWN.value,
                 source="catalog",
@@ -408,6 +536,70 @@ def explain_candidates(
     return sorted(rows, key=lambda x: x["model"])
 
 
+def _call_transport_operation(transport: Any, names: tuple[str, ...], fallback: Any = _MISSING) -> Any:
+    last_error: OmniRouteTransportError | None = None
+    for name in names:
+        operation = getattr(transport, name, None)
+        if operation is None:
+            continue
+        try:
+            return operation() if callable(operation) else operation
+        except OmniRouteTransportError as exc:
+            last_error = exc
+            break
+        except TimeoutError as exc:
+            raise OmniRouteTransportTimeout(name, type(exc).__name__) from exc
+        except OSError as exc:
+            raise OmniRouteTransportError(name, type(exc).__name__) from exc
+        except Exception as exc:
+            raise OmniRouteTransportMalformed(name, type(exc).__name__) from exc
+    if fallback is not _MISSING:
+        return fallback
+    if last_error is not None:
+        raise last_error
+    raise OmniRouteTransportUnsupported(names[0], f"expected one of {', '.join(names)}")
+
+
+def discover_transport_capabilities(transport: Any) -> frozenset[str]:
+    operations: set[str] = set()
+    for canonical, names in (
+        ("catalog", CATALOG_TRANSPORT_OPERATIONS),
+        ("runtime", RUNTIME_TRANSPORT_OPERATIONS),
+    ):
+        if any(hasattr(transport, name) for name in names):
+            operations.add(canonical)
+    explicit = getattr(transport, "discover_capabilities", None)
+    if explicit is not None:
+        try:
+            payload = explicit() if callable(explicit) else explicit
+        except OmniRouteTransportUnsupported:
+            payload = None
+        except OmniRouteTransportError:
+            payload = None
+        except TimeoutError:
+            payload = None
+        except Exception:
+            payload = None
+        if payload is not None:
+            if isinstance(payload, Mapping):
+                payload = payload.get("operations", payload.get("supported_operations", payload))
+            if isinstance(payload, str):
+                payload = [x.strip() for x in payload.split(",") if x.strip()]
+            if isinstance(payload, (list, tuple, set, frozenset)):
+                advertised = {str(item).strip().lower() for item in payload if str(item).strip()}
+                allowlisted = advertised & set(SUPPORTED_TRANSPORT_OPERATIONS)
+                if allowlisted:
+                    operations.update(
+                        {
+                            "catalog" if item in CATALOG_TRANSPORT_OPERATIONS else
+                            "runtime" if item in RUNTIME_TRANSPORT_OPERATIONS else
+                            "discover_capabilities"
+                            for item in allowlisted
+                        }
+                    )
+    return frozenset(sorted(operations))
+
+
 class OmniRouteAvailabilityAdapter:
     """Fetch and normalize runtime truth using an injected documented transport."""
 
@@ -417,6 +609,7 @@ class OmniRouteAvailabilityAdapter:
         self.transport = transport
         self.ttl_seconds = ttl_seconds
         self.clock = clock
+        self.transport_capabilities = discover_transport_capabilities(transport)
 
     def evaluate(
         self,
@@ -427,18 +620,26 @@ class OmniRouteAvailabilityAdapter:
         current = _now(now or (self.clock() if self.clock else None))
         errors: list[str] = []
         try:
-            catalog = normalize_catalog(self.transport.catalog())
-        except (TimeoutError, OSError) as exc:
-            return AvailabilityReport(
-                (), (), "omniroute", None, (f"catalog transport: {type(exc).__name__}",)
+            catalog_payload = _call_transport_operation(self.transport, CATALOG_TRANSPORT_OPERATIONS)
+            capability_payload = _call_transport_operation(
+                self.transport, CAPABILITY_TRANSPORT_OPERATIONS, fallback=None
             )
-        except Exception:
-            return AvailabilityReport((), (), "omniroute", None, ("catalog transport: malformed",))
+            catalog = normalize_catalog(catalog_payload, capability_payload)
+        except OmniRouteTransportTimeout as exc:
+            return AvailabilityReport(
+                (), (), "omniroute", None, (f"{exc.operation} transport: timeout",)
+            )
+        except OmniRouteTransportUnsupported as exc:
+            return AvailabilityReport((), (), "omniroute", None, (str(exc),))
+        except OmniRouteTransportError as exc:
+            return AvailabilityReport((), (), "omniroute", None, (f"{exc.operation} transport: malformed",))
         try:
-            runtime = self.transport.runtime()
-        except TimeoutError:
+            runtime = _call_transport_operation(self.transport, RUNTIME_TRANSPORT_OPERATIONS)
+        except OmniRouteTransportTimeout:
             runtime, errors = {}, ["runtime transport: timeout"]
-        except Exception:
+        except OmniRouteTransportUnsupported as exc:
+            runtime, errors = {}, [str(exc)]
+        except OmniRouteTransportError:
             runtime, errors = {}, ["runtime transport: malformed"]
         mapping = runtime if isinstance(runtime, Mapping) else {}
         malformed_runtime = runtime is not None and not isinstance(runtime, Mapping)
