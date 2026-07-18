@@ -237,3 +237,10 @@ count/concurrency bounds, exponential cooldown, and quarantine after repeated
 failures. Use the resulting `ProbeObservation.as_runtime_observation()` with
 the availability adapter; do not treat vector/RAG memory as live health
 authority.
+
+Candidate selection fails closed by default: only `ready` observations are
+selectable. Non-protected callers may explicitly set
+`CandidateRequirements(allow_degraded=True)` to admit fresh `degraded`
+observations; protected work still rejects them. The separate
+`unknown_is_eligible` opt-in admits only fresh, internally consistent
+`unknown` evidence—never missing, stale, malformed, or contradictory data.

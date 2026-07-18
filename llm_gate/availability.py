@@ -8,6 +8,7 @@ transport protocol below.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -17,11 +18,21 @@ from typing import Any, Protocol
 from llm_gate.models import ModelInfo
 
 
+def _is_finite_number(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (OverflowError, TypeError, ValueError):
+        return False
+
+
 class AvailabilityState(str, Enum):
     ELIGIBLE = "eligible"
     READY = "eligible"
     DEGRADED = "degraded"
     UNKNOWN = "unknown"
+    UNAVAILABLE = "unavailable"
     DENIED = "denied"
     QUOTA_EXHAUSTED = "quota_exhausted"
     RATE_LIMITED = "rate_limited"
@@ -47,6 +58,21 @@ class CandidateRequirements:
     budget_remaining: float | None = None
     max_concurrency: int | None = None
     unknown_is_eligible: bool = False
+    allow_degraded: bool = False
+
+    def __post_init__(self) -> None:
+        budget = self.budget_remaining
+        if budget is not None and (not _is_finite_number(budget) or budget < 0):
+            raise ValueError("budget_remaining must be a finite non-negative number")
+        if self.max_concurrency is not None and (
+            type(self.max_concurrency) is not int or self.max_concurrency < 1
+        ):
+            raise ValueError("max_concurrency must be a positive integer")
+        if any(
+            type(value) is not bool
+            for value in (self.protected, self.unknown_is_eligible, self.allow_degraded)
+        ):
+            raise ValueError("candidate requirement flags must be booleans")
 
 
 @dataclass(frozen=True)
@@ -237,9 +263,24 @@ def _timestamp(value: datetime | str | None) -> datetime | None:
 
 def _as_float(value: Any) -> float | None:
     try:
-        return None if value is None or isinstance(value, bool) else float(value)
-    except (TypeError, ValueError):
+        parsed = None if value is None or isinstance(value, bool) else float(value)
+    except (OverflowError, TypeError, ValueError):
         return None
+    return parsed if parsed is not None and math.isfinite(parsed) else None
+
+
+def _as_int(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    if isinstance(value, float) and not value.is_integer():
+        return None
+    if isinstance(value, str) and value.strip() != str(parsed):
+        return None
+    return parsed
 
 
 def _capabilities(row: Mapping[str, Any]) -> frozenset[str]:
@@ -323,30 +364,274 @@ def normalize_catalog(rows: Any, capabilities: Any = None) -> list[ModelInfo]:
 
 def _raw_observation(value: Any) -> RuntimeObservation:
     if isinstance(value, RuntimeObservation):
-        return value
+        return replace(
+            value,
+            health=value.health.lower() if isinstance(value.health, str) else value.health,
+            auth=value.auth.lower() if isinstance(value.auth, str) else value.auth,
+            circuit=value.circuit.lower() if isinstance(value.circuit, str) else value.circuit,
+        )
     if not isinstance(value, Mapping):
         return RuntimeObservation(error="malformed runtime observation", health="unknown")
+    observed_at = value.get("observed_at", value.get("timestamp"))
+    ttl_value = value.get("ttl_seconds", value.get("ttl", 60))
+    ttl_seconds = _as_int(ttl_value)
+    health = value.get("health", value.get("status", "unknown"))
+    source = value.get("source", "unknown")
+    auth = value.get("auth", "unknown")
+    circuit = value.get("circuit", "closed")
+    cooldown_until = value.get("cooldown_until")
+    lockout_until = value.get("lockout_until")
+    eligible = value.get("eligible")
+    error = value.get("error")
+    nested_raw = value.get("raw")
+    raw: Mapping[str, Any]
+    if nested_raw is None:
+        raw = value
+    elif isinstance(nested_raw, Mapping):
+        merged_raw = dict(value)
+        merged_raw.pop("raw", None)
+        merged_raw.update(nested_raw)
+        raw = merged_raw
+    else:
+        raw = {}
+    numeric_values = (
+        value.get("quota_remaining_pct", value.get("quota_remaining")),
+        value.get("headroom_pct", value.get("headroom")),
+        value.get("budget_remaining"),
+        value.get("cost"),
+    )
+    concurrency = value.get("concurrency")
+    max_concurrency = value.get("max_concurrency")
+    parsed_concurrency = _as_int(concurrency)
+    parsed_max_concurrency = _as_int(max_concurrency)
+    malformed = (
+        ttl_seconds is None
+        or ttl_seconds <= 0
+        or not isinstance(health, str)
+        or not isinstance(source, str)
+        or not isinstance(auth, str)
+        or not isinstance(circuit, str)
+        or (eligible is not None and not isinstance(eligible, bool))
+        or (error is not None and not isinstance(error, str))
+        or (nested_raw is not None and not isinstance(nested_raw, Mapping))
+        or any(item is not None and _as_float(item) is None for item in numeric_values)
+        or (concurrency is not None and (parsed_concurrency is None or parsed_concurrency < 0))
+        or (
+            max_concurrency is not None
+            and (parsed_max_concurrency is None or parsed_max_concurrency < 1)
+        )
+        or (cooldown_until is not None and not isinstance(cooldown_until, (datetime, str)))
+        or (lockout_until is not None and not isinstance(lockout_until, (datetime, str)))
+    )
+    if malformed:
+        return RuntimeObservation(
+            observed_at=observed_at,
+            source=source if isinstance(source, str) else "unknown",
+            health="unknown",
+            error="malformed runtime observation",
+            raw=raw,
+        )
+    assert ttl_seconds is not None
+    assert isinstance(source, str)
+    assert isinstance(health, str)
+    assert isinstance(auth, str)
+    assert isinstance(circuit, str)
     return RuntimeObservation(
-        observed_at=value.get("observed_at", value.get("timestamp")),
-        ttl_seconds=int(value.get("ttl_seconds", value.get("ttl", 60)) or 60),
-        source=str(value.get("source", "unknown")),
-        health=str(value.get("health", value.get("status", "unknown"))).lower(),
+        observed_at=observed_at,
+        ttl_seconds=ttl_seconds,
+        source=source,
+        health=health.lower(),
         quota_remaining_pct=_as_float(
             value.get("quota_remaining_pct", value.get("quota_remaining"))
         ),
         headroom_pct=_as_float(value.get("headroom_pct", value.get("headroom"))),
         budget_remaining=_as_float(value.get("budget_remaining")),
         cost=_as_float(value.get("cost")),
-        concurrency=value.get("concurrency"),
-        max_concurrency=value.get("max_concurrency"),
-        auth=str(value.get("auth", "unknown")).lower(),
-        circuit=str(value.get("circuit", "closed")).lower(),
-        cooldown_until=value.get("cooldown_until"),
-        lockout_until=value.get("lockout_until"),
-        eligible=value.get("eligible"),
-        error=value.get("error"),
-        raw=value,
+        concurrency=parsed_concurrency,
+        max_concurrency=parsed_max_concurrency,
+        auth=auth.lower(),
+        circuit=circuit.lower(),
+        cooldown_until=cooldown_until,
+        lockout_until=lockout_until,
+        eligible=eligible,
+        error=error,
+        raw=raw,
     )
+
+
+_KNOWN_HEALTH_STATES = frozenset(
+    {
+        "",
+        "unknown",
+        "healthy",
+        "ready",
+        "ok",
+        "degraded",
+        "degraded_mode",
+        "unhealthy",
+        "down",
+        "offline",
+        "unavailable",
+        "outage",
+        "denied",
+        "quota_exhausted",
+        "rate_limited",
+        "unauthorized",
+        "locked_out",
+        "circuit_open",
+        "timeout",
+        "malformed",
+    }
+)
+_KNOWN_AUTH_STATES = frozenset(
+    {"unknown", "authorized", "ok", "valid", "unauthorized", "forbidden", "invalid", "missing"}
+)
+_KNOWN_CIRCUIT_STATES = frozenset({"closed", "half_open", "open", "tripped"})
+
+
+def _observation_is_well_formed(obs: RuntimeObservation) -> bool:
+    numeric_values = (
+        obs.quota_remaining_pct,
+        obs.headroom_pct,
+        obs.budget_remaining,
+        obs.cost,
+    )
+    return (
+        type(obs.ttl_seconds) is int
+        and obs.ttl_seconds > 0
+        and isinstance(obs.source, str)
+        and isinstance(obs.health, str)
+        and obs.health in _KNOWN_HEALTH_STATES
+        and isinstance(obs.auth, str)
+        and obs.auth in _KNOWN_AUTH_STATES
+        and isinstance(obs.circuit, str)
+        and obs.circuit in _KNOWN_CIRCUIT_STATES
+        and isinstance(obs.raw, Mapping)
+        and (obs.eligible is None or isinstance(obs.eligible, bool))
+        and (obs.error is None or isinstance(obs.error, str))
+        and all(item is None or _is_finite_number(item) for item in numeric_values)
+        and all(
+            item is None or 0 <= item <= 100 for item in (obs.quota_remaining_pct, obs.headroom_pct)
+        )
+        and all(item is None or item >= 0 for item in (obs.budget_remaining, obs.cost))
+        and (obs.concurrency is None or (type(obs.concurrency) is int and obs.concurrency >= 0))
+        and (
+            obs.max_concurrency is None
+            or (type(obs.max_concurrency) is int and obs.max_concurrency >= 1)
+        )
+        and (
+            obs.cooldown_until is None
+            or (
+                isinstance(obs.cooldown_until, (datetime, str))
+                and _timestamp(obs.cooldown_until) is not None
+            )
+        )
+        and (
+            obs.lockout_until is None
+            or (
+                isinstance(obs.lockout_until, (datetime, str))
+                and _timestamp(obs.lockout_until) is not None
+            )
+        )
+    )
+
+
+def _probe_state(obs: RuntimeObservation) -> tuple[AvailabilityState, str] | None:
+    if obs.source != "llm-gate:probe":
+        return None
+    error_class = obs.raw.get("probe_error_class")
+    status = obs.raw.get("probe_status")
+    reported_state = obs.raw.get("probe_availability_state")
+    detail = obs.raw.get("probe_error")
+    usage_available = obs.raw.get("usage_available")
+    http_status = obs.raw.get("http_status")
+    known_statuses = {
+        "ready",
+        "usage_unavailable",
+        "completion_unavailable",
+        "failed",
+        "timeout",
+        "skipped",
+    }
+    if (
+        not isinstance(status, str)
+        or status not in known_statuses
+        or (
+            reported_state is not None
+            and (
+                not isinstance(reported_state, str)
+                or reported_state not in {"ready", "degraded", "denied"}
+            )
+        )
+        or (error_class is not None and not isinstance(error_class, str))
+        or (detail is not None and not isinstance(detail, str))
+        or (usage_available is not None and type(usage_available) is not bool)
+        or (http_status is not None and type(http_status) is not int)
+    ):
+        return AvailabilityState.MALFORMED, "malformed probe metadata"
+    error_states = {
+        "unauthorized": AvailabilityState.UNAUTHORIZED,
+        "quota_exhausted": AvailabilityState.QUOTA_EXHAUSTED,
+        "rate_limited": AvailabilityState.RATE_LIMITED,
+        "timeout": AvailabilityState.TIMEOUT,
+        "malformed_response": AvailabilityState.MALFORMED,
+        "upstream_error": AvailabilityState.UNAVAILABLE,
+    }
+    reason = (
+        error_class
+        if isinstance(error_class, str) and error_class in error_states
+        else str(status or "probe")
+    )
+    if status in {"usage_unavailable", "completion_unavailable"}:
+        expected_usage = status == "completion_unavailable"
+        if (
+            reported_state not in {None, "degraded"}
+            or error_class is not None
+            or type(http_status) is not int
+            or not 200 <= http_status < 300
+            or usage_available is not expected_usage
+            or obs.eligible is not None
+            or obs.health not in {"degraded", "degraded_mode"}
+        ):
+            return AvailabilityState.MALFORMED, "contradictory probe metadata"
+        return AvailabilityState.DEGRADED, reason
+    if status == "ready":
+        if (
+            reported_state not in {None, "ready"}
+            or error_class is not None
+            or usage_available is not True
+            or type(http_status) is not int
+            or not 200 <= http_status < 300
+            or bool(detail)
+            or obs.eligible is not True
+            or obs.health not in {"healthy", "ready", "ok"}
+            or obs.auth not in {"authorized", "ok", "valid"}
+        ):
+            return AvailabilityState.MALFORMED, "contradictory probe metadata"
+        return None
+    if obs.eligible is True:
+        return AvailabilityState.MALFORMED, "contradictory probe metadata"
+    if status == "timeout":
+        if error_class != "timeout" or reported_state not in {None, "degraded", "denied"}:
+            return AvailabilityState.MALFORMED, "contradictory probe metadata"
+        if reported_state == "denied":
+            return AvailabilityState.DENIED, "probe_denied"
+        return AvailabilityState.TIMEOUT, reason
+    if status == "failed":
+        if not isinstance(error_class, str) or not error_class:
+            return AvailabilityState.MALFORMED, "malformed probe metadata"
+        if reported_state == "denied":
+            return AvailabilityState.DENIED, "probe_denied"
+        if error_class in error_states:
+            return error_states[error_class], error_class
+        return AvailabilityState.UNAVAILABLE, "probe_failed"
+    if status == "skipped":
+        if detail == "cooldown" and reported_state in {None, "degraded"}:
+            return AvailabilityState.RATE_LIMITED, "cooldown"
+        if detail == "quarantined" and reported_state in {None, "denied"}:
+            return AvailabilityState.DENIED, "quarantined"
+        return AvailabilityState.MALFORMED, "contradictory probe metadata"
+    return AvailabilityState.MALFORMED, "malformed probe metadata"
 
 
 def normalize_observation(
@@ -358,14 +643,31 @@ def normalize_observation(
     seen = _timestamp(obs.observed_at)
     age = (current - seen).total_seconds() if seen else None
     reasons: list[str] = []
-    if obs.error or (obs.observed_at is not None and seen is None):
+    if (
+        obs.error
+        or not _observation_is_well_formed(obs)
+        or (obs.observed_at is not None and seen is None)
+    ):
         return AvailabilityCandidate(
             model,
             AvailabilityState.MALFORMED,
-            (obs.error or "malformed timestamp",),
+            (
+                "malformed runtime observation"
+                if obs.error is None or obs.error == "malformed runtime observation"
+                else "runtime observation error",
+            ),
             obs.headroom_pct,
             obs.source,
             age,
+        )
+    if seen is None:
+        return AvailabilityCandidate(
+            model,
+            AvailabilityState.UNKNOWN,
+            ("observation timestamp missing",),
+            obs.headroom_pct,
+            obs.source,
+            None,
         )
     if seen is not None and age is not None and (age < -5 or age > max(0, obs.ttl_seconds)):
         return AvailabilityCandidate(
@@ -414,7 +716,10 @@ def normalize_observation(
             obs.source,
             age,
         )
-    quota = obs.quota_remaining_pct if obs.quota_remaining_pct is not None else obs.headroom_pct
+    quota_values = [
+        value for value in (obs.quota_remaining_pct, obs.headroom_pct) if value is not None
+    ]
+    quota = min(quota_values) if quota_values else None
     if quota is not None and (quota < 0 or quota > 100):
         return AvailabilityCandidate(
             model, AvailabilityState.MALFORMED, ("quota outside 0..100",), quota, obs.source, age
@@ -423,9 +728,70 @@ def normalize_observation(
         return AvailabilityCandidate(
             model, AvailabilityState.QUOTA_EXHAUSTED, ("quota exhausted",), quota, obs.source, age
         )
-    contradictory = (obs.health in {"healthy", "ready", "ok"} and obs.eligible is False) or (
-        obs.health in {"unhealthy", "down", "offline"} and obs.eligible is True
-    )
+
+    def intrinsic_capacity_denial() -> AvailabilityCandidate | None:
+        if (
+            obs.cost is not None
+            and obs.budget_remaining is not None
+            and obs.cost > obs.budget_remaining
+        ):
+            return AvailabilityCandidate(
+                model,
+                AvailabilityState.POLICY_DENIED,
+                ("budget headroom exceeded",),
+                quota,
+                obs.source,
+                age,
+            )
+        if (
+            obs.concurrency is not None
+            and obs.max_concurrency is not None
+            and obs.concurrency >= obs.max_concurrency
+        ):
+            return AvailabilityCandidate(
+                model,
+                AvailabilityState.POLICY_DENIED,
+                ("concurrency limit reached",),
+                quota,
+                obs.source,
+                age,
+            )
+        return None
+
+    if obs.eligible is False:
+        if obs.health in {"healthy", "ready", "ok"}:
+            return AvailabilityCandidate(
+                model,
+                AvailabilityState.UNKNOWN,
+                ("contradictory health and eligibility signals",),
+                quota,
+                obs.source,
+                age,
+            )
+        return AvailabilityCandidate(
+            model,
+            AvailabilityState.DENIED,
+            ("runtime marked ineligible",),
+            quota,
+            obs.source,
+            age,
+        )
+    probe_state = _probe_state(obs)
+    if probe_state is not None:
+        state, reason = probe_state
+        if state is AvailabilityState.DEGRADED:
+            capacity_denial = intrinsic_capacity_denial()
+            if capacity_denial is not None:
+                return capacity_denial
+        return AvailabilityCandidate(
+            model,
+            state,
+            (reason,),
+            quota,
+            obs.source,
+            age,
+        )
+    contradictory = obs.health in {"unhealthy", "down", "offline"} and obs.eligible is True
     if contradictory:
         return AvailabilityCandidate(
             model,
@@ -439,6 +805,30 @@ def normalize_observation(
         return AvailabilityCandidate(
             model, AvailabilityState.DENIED, (f"health: {obs.health}",), quota, obs.source, age
         )
+    explicit_health_states = {
+        "unavailable": AvailabilityState.UNAVAILABLE,
+        "outage": AvailabilityState.UNAVAILABLE,
+        "denied": AvailabilityState.DENIED,
+        "quota_exhausted": AvailabilityState.QUOTA_EXHAUSTED,
+        "rate_limited": AvailabilityState.RATE_LIMITED,
+        "unauthorized": AvailabilityState.UNAUTHORIZED,
+        "locked_out": AvailabilityState.LOCKED_OUT,
+        "circuit_open": AvailabilityState.CIRCUIT_OPEN,
+        "timeout": AvailabilityState.TIMEOUT,
+        "malformed": AvailabilityState.MALFORMED,
+    }
+    if obs.health in explicit_health_states:
+        return AvailabilityCandidate(
+            model,
+            explicit_health_states[obs.health],
+            (f"health: {obs.health}",),
+            quota,
+            obs.source,
+            age,
+        )
+    capacity_denial = intrinsic_capacity_denial()
+    if capacity_denial is not None:
+        return capacity_denial
     if obs.health in {"degraded", "degraded_mode"} or (quota is not None and quota < 20):
         return AvailabilityCandidate(
             model,
@@ -481,17 +871,37 @@ def select_capable_candidates(
     """Return only candidates that pass every hard availability and policy gate."""
     result: list[AvailabilityCandidate] = []
     for item in states:
-        reason = _policy_reason(item, requirements)
-        if reason:
-            continue
-        if item.state in {AvailabilityState.READY, AvailabilityState.DEGRADED} or (
-            item.state is AvailabilityState.UNKNOWN
-            and requirements.unknown_is_eligible
-            and not requirements.protected
-            and "stale observation" not in item.reasons
-        ):
+        if _candidate_is_eligible(item, requirements):
             result.append(item)
     return sorted(result, key=lambda x: (x.model.capability_tier, x.model.id))
+
+
+def _candidate_is_eligible(
+    item: AvailabilityCandidate, requirements: CandidateRequirements
+) -> bool:
+    if _policy_reason(item, requirements):
+        return False
+    return _availability_state_is_eligible(item, requirements)
+
+
+def _availability_state_is_eligible(
+    item: AvailabilityCandidate, requirements: CandidateRequirements
+) -> bool:
+    if item.state is AvailabilityState.READY:
+        return True
+    if (
+        item.state is AvailabilityState.DEGRADED
+        and requirements.allow_degraded
+        and not requirements.protected
+    ):
+        return True
+    return (
+        item.state is AvailabilityState.UNKNOWN
+        and requirements.unknown_is_eligible
+        and not requirements.protected
+        and item.freshness_seconds is not None
+        and item.reasons == ("health unknown",)
+    )
 
 
 def explain_candidates(
@@ -511,17 +921,13 @@ def explain_candidates(
             rows.append(
                 {"model": item.model.id, "state": state.value, "rejected": True, "reason": text}
             )
-        elif item.state in {AvailabilityState.READY, AvailabilityState.DEGRADED} or (
-            item.state is AvailabilityState.UNKNOWN
-            and requirements.unknown_is_eligible
-            and not requirements.protected
-        ):
+        elif _candidate_is_eligible(item, requirements):
             rows.append(
                 {
                     "model": item.model.id,
-                    "state": "eligible",
+                    "state": item.state.value,
                     "rejected": False,
-                    "reason": "eligible",
+                    "reason": item.reasons[0] if item.reasons else item.state.value,
                 }
             )
         else:
@@ -682,30 +1088,32 @@ class OmniRouteAvailabilityAdapter:
             states.append(normalize_observation(model, _raw_observation(value), now=current))
         # Budget and concurrency are hard runtime gates, not ranking hints.
         for index, item in enumerate(states):
+            if not _availability_state_is_eligible(item, requirements):
+                continue
             raw = _raw_observation(
                 mapping.get(
                     item.model.id, mapping.get(item.model.provider, mapping.get("default", {}))
                 )
             )
-            reason = None
+            reasons = []
             if (
                 requirements.budget_remaining is not None
                 and raw.cost is not None
                 and raw.cost > requirements.budget_remaining
             ):
-                reason = "budget exceeded"
+                reasons.append("budget exceeded")
             if (
                 requirements.max_concurrency is not None
                 and raw.concurrency is not None
                 and raw.concurrency >= requirements.max_concurrency
             ):
-                reason = "concurrency limit reached"
-            if reason:
+                reasons.append("concurrency limit reached")
+            if reasons:
                 states[index] = replace(
-                    item, state=AvailabilityState.POLICY_DENIED, reasons=(reason,)
+                    item, state=AvailabilityState.POLICY_DENIED, reasons=tuple(reasons)
                 )
         eligible = select_capable_candidates(states, requirements)
-        freshness = min(
+        freshness = max(
             (x.freshness_seconds for x in states if x.freshness_seconds is not None), default=None
         )
         source = next((x.source for x in states if x.source != "unknown"), "omniroute")

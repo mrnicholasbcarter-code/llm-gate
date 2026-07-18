@@ -11,12 +11,16 @@ The decision must be deterministic for identical inputs, catalog state, policy v
 
 ### 2. Candidate states
 
-Every discovered model is normalized into one of four availability states:
+Every discovered model is normalized into an explicit availability state:
 
 - `ready`: catalog metadata is valid and the last health/headroom signal permits use.
-- `degraded`: usable with a penalty, such as elevated latency or low remaining quota.
+- `degraded`: elevated latency or low remaining quota; rejected by default and usable
+  only for non-protected work with an explicit `allow_degraded` opt-in.
 - `unknown`: present in the catalog but not verified. Unknown is not treated as ready by default.
 - `denied`: removed by policy, unsupported capability, privacy restriction, or failed hard gate.
+- `unavailable`, `quota_exhausted`, `rate_limited`, `unauthorized`, `locked_out`,
+  `circuit_open`, `timeout`, and `malformed`: stable hard-exclusion states with
+  redacted explanations.
 
 OmniRoute's `/v1/models` response is a synchronized catalog. It can contain models that are not currently usable. llm-gate MUST apply its own allowlist, denylist, metadata overrides, and optional bounded health probes. An OmniRoute API key's `allowed_models` restriction does not necessarily filter the catalog response, so local filtering is mandatory.
 

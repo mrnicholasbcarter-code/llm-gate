@@ -98,6 +98,9 @@ class ProbeObservation:
             health = "unhealthy"
         raw = {
             "probe_status": self.status,
+            "probe_availability_state": self.availability_state,
+            "probe_error_class": self.error_class,
+            "probe_error": self.error,
             "usage_available": self.usage_available,
             "http_status": self.http_status,
         }
@@ -106,8 +109,8 @@ class ProbeObservation:
             ttl_seconds=60,
             source="llm-gate:probe",
             health=health,
-            eligible=self.availability_state == "ready",
-            error=self.error,
+            auth="authorized" if self.availability_state == "ready" else "unknown",
+            eligible=True if self.availability_state == "ready" else None,
             raw=raw,
         )
 

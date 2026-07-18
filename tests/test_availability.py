@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from llm_gate.availability import (
     AvailabilityState,
     CandidateRequirements,
@@ -113,3 +115,95 @@ def test_unknown_is_not_eligible_for_protected_work() -> None:
 
     assert select_capable_candidates([state], CandidateRequirements(protected=True)) == []
     assert state.state is AvailabilityState.UNKNOWN
+
+
+def test_stale_unknown_selection_and_explanation_use_the_same_gate() -> None:
+    state = normalize_observation(
+        ModelInfo(id="p/model", provider="p", capability_tier=1),
+        RuntimeObservation(
+            observed_at=datetime(2026, 7, 16, 11, 58, tzinfo=timezone.utc),
+            ttl_seconds=60,
+            source="fixture",
+            health="healthy",
+        ),
+        now=NOW,
+    )
+    requirements = CandidateRequirements(unknown_is_eligible=True)
+
+    assert select_capable_candidates([state], requirements) == []
+    assert explain_candidates([state], requirements) == [
+        {
+            "model": "p/model",
+            "state": "unknown",
+            "rejected": True,
+            "reason": "stale observation",
+        }
+    ]
+
+
+def test_unknown_opt_in_never_overrides_missing_or_contradictory_evidence() -> None:
+    model = ModelInfo(id="p/model", provider="p", capability_tier=1)
+    missing_time = normalize_observation(
+        model,
+        RuntimeObservation(source="fixture", health="healthy", eligible=True),
+        now=NOW,
+    )
+    contradictory = normalize_observation(
+        model,
+        RuntimeObservation(
+            observed_at=NOW,
+            source="fixture",
+            health="healthy",
+            eligible=False,
+        ),
+        now=NOW,
+    )
+
+    assert (
+        select_capable_candidates(
+            [missing_time, contradictory],
+            CandidateRequirements(unknown_is_eligible=True),
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    "requirements",
+    [
+        {"budget_remaining": float("nan")},
+        {"budget_remaining": -1},
+        {"budget_remaining": 10**400},
+        {"max_concurrency": "2"},
+        {"max_concurrency": 0},
+        {"protected": "false"},
+        {"unknown_is_eligible": "false"},
+        {"allow_degraded": "false"},
+    ],
+)
+def test_invalid_candidate_capacity_requirements_are_rejected(requirements) -> None:
+    with pytest.raises(ValueError):
+        CandidateRequirements(**requirements)
+
+
+def test_allowed_degraded_explanation_preserves_runtime_state() -> None:
+    state = normalize_observation(
+        ModelInfo(id="p/model", provider="p", capability_tier=1),
+        RuntimeObservation(
+            observed_at=NOW,
+            source="fixture",
+            health="degraded",
+        ),
+        now=NOW,
+    )
+    requirements = CandidateRequirements(allow_degraded=True)
+
+    assert select_capable_candidates([state], requirements) == [state]
+    assert explain_candidates([state], requirements) == [
+        {
+            "model": "p/model",
+            "state": "degraded",
+            "rejected": False,
+            "reason": "health degraded",
+        }
+    ]
