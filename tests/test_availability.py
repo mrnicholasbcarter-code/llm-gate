@@ -186,6 +186,68 @@ def test_invalid_candidate_capacity_requirements_are_rejected(requirements) -> N
         CandidateRequirements(**requirements)
 
 
+def test_new_capacity_fields_preserve_legacy_positional_flags() -> None:
+    requirements = CandidateRequirements(
+        frozenset(),
+        False,
+        frozenset(),
+        frozenset(),
+        frozenset(),
+        frozenset(),
+        1.0,
+        2,
+        True,
+        True,
+    )
+
+    assert requirements.unknown_is_eligible is True
+    assert requirements.allow_degraded is True
+    assert requirements.estimated_tokens is None
+    assert requirements.estimated_cost is None
+
+
+def test_token_headroom_preserves_runtime_observation_positional_fields() -> None:
+    observation = RuntimeObservation(
+        NOW,
+        60,
+        "fixture",
+        "healthy",
+        None,
+        None,
+        1.0,
+    )
+
+    assert observation.budget_remaining == 1.0
+    assert observation.token_headroom is None
+
+
+@pytest.mark.parametrize(
+    ("required_alias", "canonical"),
+    [
+        ("function_calling", "tools"),
+        ("tool-calling", "tools"),
+        ("json", "structured_output"),
+    ],
+)
+def test_direct_requirements_canonicalize_legacy_capability_aliases(
+    required_alias, canonical
+) -> None:
+    requirements = CandidateRequirements(required=frozenset({required_alias}))
+    state = normalize_observation(
+        ModelInfo(
+            id="p/model",
+            provider="p",
+            capability_tier=1,
+            capabilities=frozenset({canonical}),
+        ),
+        RuntimeObservation(observed_at=NOW, health="healthy"),
+        now=NOW,
+    )
+
+    assert requirements.required == frozenset({canonical})
+    assert select_capable_candidates([state], requirements) == [state]
+
+
 def test_allowed_degraded_explanation_preserves_runtime_state() -> None:
     state = normalize_observation(
         ModelInfo(id="p/model", provider="p", capability_tier=1),

@@ -17,6 +17,7 @@ from llm_gate.availability import (
     normalize_observation,
 )
 from llm_gate.models import ModelInfo
+from llm_gate.planner import StructuredPlanner
 
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 MODEL = ModelInfo(id="p/model", provider="p", capability_tier=1, capabilities=frozenset({"tools"}))
@@ -359,6 +360,203 @@ def test_runtime_capacity_evidence_is_a_hard_gate(observation, reason) -> None:
 
     assert state.state is AvailabilityState.POLICY_DENIED
     assert state.reasons == (reason,)
+
+
+def test_estimated_request_tokens_must_fit_runtime_headroom() -> None:
+    report = OmniRouteAvailabilityAdapter(
+        StaticOmniRouteTransport(
+            {"data": [{"id": "p/model", "provider": "p"}]},
+            {
+                "p/model": {
+                    "observed_at": NOW.isoformat(),
+                    "health": "healthy",
+                    "token_headroom": 1_000,
+                }
+            },
+        )
+    ).evaluate(CandidateRequirements(estimated_tokens=1_001), now=NOW)
+
+    assert report.eligible == ()
+    assert report.candidates[0].state is AvailabilityState.POLICY_DENIED
+    assert report.candidates[0].reasons == ("token headroom exceeded",)
+
+
+def test_tokens_remaining_alias_is_normalized_as_request_headroom() -> None:
+    report = OmniRouteAvailabilityAdapter(
+        StaticOmniRouteTransport(
+            {"data": [{"id": "p/model", "provider": "p"}]},
+            {
+                "p/model": {
+                    "observed_at": NOW.isoformat(),
+                    "health": "healthy",
+                    "tokens_remaining": 1_000,
+                }
+            },
+        )
+    ).evaluate(CandidateRequirements(estimated_tokens=1_001), now=NOW)
+
+    assert report.candidates[0].state is AvailabilityState.POLICY_DENIED
+    assert report.candidates[0].reasons == ("token headroom exceeded",)
+
+
+def test_planner_and_catalog_share_canonical_tool_capability() -> None:
+    planner = StructuredPlanner()
+    task = planner.plan("Implement a feature").task_spec
+    requirements = planner.availability_requirements(task)
+    report = OmniRouteAvailabilityAdapter(
+        StaticOmniRouteTransport(
+            {
+                "data": [
+                    {
+                        "id": "p/model",
+                        "provider": "p",
+                        "capabilities": ["tool-calling"],
+                    }
+                ]
+            },
+            {
+                "p/model": {
+                    "observed_at": NOW.isoformat(),
+                    "health": "healthy",
+                    "token_headroom": 10_000,
+                    "budget_remaining": 10.0,
+                }
+            },
+        )
+    ).evaluate(requirements, now=NOW)
+
+    assert report.candidates[0].model.capabilities == frozenset({"tools"})
+    assert [candidate.model.id for candidate in report.eligible] == ["p/model"]
+
+
+def test_conflicting_token_headroom_aliases_are_malformed() -> None:
+    report = OmniRouteAvailabilityAdapter(
+        StaticOmniRouteTransport(
+            {"data": [{"id": "p/model", "provider": "p"}]},
+            {
+                "p/model": {
+                    "observed_at": NOW.isoformat(),
+                    "health": "healthy",
+                    "token_headroom": 1_000,
+                    "tokens_remaining": 1,
+                }
+            },
+        )
+    ).evaluate(CandidateRequirements(estimated_tokens=100), now=NOW)
+
+    assert report.eligible == ()
+    assert report.candidates[0].state is AvailabilityState.MALFORMED
+    assert report.candidates[0].reasons == ("malformed runtime observation",)
+
+
+def test_estimated_request_cost_must_fit_runtime_budget_headroom() -> None:
+    report = OmniRouteAvailabilityAdapter(
+        StaticOmniRouteTransport(
+            {"data": [{"id": "p/model", "provider": "p"}]},
+            {
+                "p/model": {
+                    "observed_at": NOW.isoformat(),
+                    "health": "healthy",
+                    "budget_remaining": 0.5,
+                }
+            },
+        )
+    ).evaluate(CandidateRequirements(estimated_cost=0.51), now=NOW)
+
+    assert report.eligible == ()
+    assert report.candidates[0].state is AvailabilityState.POLICY_DENIED
+    assert report.candidates[0].reasons == ("budget headroom exceeded",)
+
+
+def test_estimated_cost_cannot_mask_a_higher_runtime_cost() -> None:
+    report = OmniRouteAvailabilityAdapter(
+        StaticOmniRouteTransport(
+            {"data": [{"id": "p/model", "provider": "p"}]},
+            {
+                "p/model": {
+                    "observed_at": NOW.isoformat(),
+                    "health": "healthy",
+                    "cost": 2.0,
+                }
+            },
+        )
+    ).evaluate(
+        CandidateRequirements(
+            budget_remaining=1.0,
+            estimated_cost=0.5,
+        ),
+        now=NOW,
+    )
+
+    assert report.eligible == ()
+    assert report.candidates[0].state is AvailabilityState.POLICY_DENIED
+    assert report.candidates[0].reasons == ("budget headroom exceeded",)
+
+
+def test_missing_estimated_request_headroom_requires_degraded_opt_in() -> None:
+    adapter = OmniRouteAvailabilityAdapter(
+        StaticOmniRouteTransport(
+            {"data": [{"id": "p/model", "provider": "p"}]},
+            {"p/model": {"observed_at": NOW.isoformat(), "health": "healthy"}},
+        )
+    )
+
+    default = adapter.evaluate(CandidateRequirements(estimated_tokens=100), now=NOW)
+    opted_in = adapter.evaluate(
+        CandidateRequirements(estimated_tokens=100, allow_degraded=True),
+        now=NOW,
+    )
+
+    assert default.candidates[0].state is AvailabilityState.DEGRADED
+    assert default.candidates[0].reasons == ("token headroom unknown",)
+    assert default.eligible == ()
+    assert [candidate.model.id for candidate in opted_in.eligible] == ["p/model"]
+
+
+def test_missing_estimated_cost_headroom_fails_closed() -> None:
+    report = OmniRouteAvailabilityAdapter(
+        StaticOmniRouteTransport(
+            {"data": [{"id": "p/model", "provider": "p"}]},
+            {"p/model": {"observed_at": NOW.isoformat(), "health": "healthy"}},
+        )
+    ).evaluate(CandidateRequirements(estimated_cost=0.5), now=NOW)
+
+    assert report.candidates[0].state is AvailabilityState.DEGRADED
+    assert report.candidates[0].reasons == ("budget headroom unknown",)
+    assert report.eligible == ()
+
+
+@pytest.mark.parametrize(
+    "requirements",
+    [
+        {"estimated_tokens": True},
+        {"estimated_tokens": 1.5},
+        {"estimated_tokens": -1},
+        {"estimated_cost": False},
+        {"estimated_cost": -0.01},
+        {"estimated_cost": float("nan")},
+        {"estimated_cost": 10**400},
+    ],
+)
+def test_invalid_request_estimates_are_rejected(requirements) -> None:
+    with pytest.raises(ValueError, match="estimated"):
+        CandidateRequirements(**requirements)
+
+
+@pytest.mark.parametrize("token_headroom", [True, 1.5, -1, 10**400])
+def test_invalid_runtime_token_headroom_is_malformed(token_headroom) -> None:
+    state = normalize_observation(
+        MODEL,
+        RuntimeObservation(
+            observed_at=NOW,
+            source="fixture",
+            health="healthy",
+            token_headroom=token_headroom,
+        ),
+        now=NOW,
+    )
+
+    assert state.state is AvailabilityState.MALFORMED
 
 
 @pytest.mark.parametrize(

@@ -41,6 +41,9 @@ TaskRequirements {
   vision_required: boolean
   streaming_required: boolean
   latency_budget_ms: integer | unknown
+  estimated_tokens: non-negative integer
+  estimated_cost_usd: finite non-negative number
+  budget_remaining_usd: finite non-negative number | unknown
   privacy_class: local_only | trusted_upstream | any
   protected: boolean
 }
@@ -58,6 +61,38 @@ Hard gates run before scoring:
 4. A request with unknown risk and a protected keyword is escalated, never downgraded.
 5. An upstream response already started streaming cannot be retried or silently switched.
 6. User-specified `model` is treated as a preference only when `allow_client_model_override=false`; direct override requires an explicit policy flag.
+7. Estimated request tokens must fit the candidate's normalized `token_headroom`
+   (or `tokens_remaining` alias). Estimated cost must fit the smallest known
+   request-policy or runtime budget.
+8. Missing token or cost headroom degrades the candidate and requires an explicit
+   non-protected opt-in. Protected work never admits degraded capacity evidence.
+9. A request that exceeds known token or budget headroom is denied before ranking.
+
+#### 4.1 Conservative capacity reservations
+
+The deterministic planner emits an explicit `deterministic_effort_reservation_v1`
+admission reservation:
+
+| Effort | Reserved tokens | Reserved cost (USD) | Reserved latency (ms) |
+| --- | ---: | ---: | ---: |
+| low | 1,024 | 0.05 | 2,000 |
+| medium | 8,192 | 1.00 | 15,000 |
+| high | 32,768 | 5.00 | 60,000 |
+
+These values are conservative routing reservations, not tokenizer output,
+observed usage, pricing estimates, or billing records. They provide deterministic
+floors until a versioned model-aware estimator is introduced. A structured or
+learned planner may raise a reservation but cannot lower these floors. Invalid,
+negative, non-finite, fractional token, or boolean estimates are rejected at the
+planning or availability boundary.
+
+Capacity reasons are stable and machine-readable: `token headroom unknown`,
+`token headroom exceeded`, `budget headroom unknown`, and
+`budget headroom exceeded`.
+
+When both token-headroom aliases are present, they must agree or the observation
+is malformed. When planned and runtime cost estimates are both present, the
+larger estimate is checked against the smallest known budget.
 
 ### 5. Scoring
 

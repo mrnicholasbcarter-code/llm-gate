@@ -27,6 +27,22 @@ def _is_finite_number(value: Any) -> bool:
         return False
 
 
+_CAPABILITY_ALIASES = {
+    "function-calling": "tools",
+    "function_calling": "tools",
+    "tool-calling": "tools",
+    "tool_calling": "tools",
+    "json": "structured_output",
+    "structured-output": "structured_output",
+}
+
+
+def canonical_capability(value: Any) -> str:
+    """Return the shared capability vocabulary used by catalog and policy."""
+    normalized = str(value).strip().lower()
+    return _CAPABILITY_ALIASES.get(normalized, normalized)
+
+
 class AvailabilityState(str, Enum):
     ELIGIBLE = "eligible"
     READY = "eligible"
@@ -59,8 +75,15 @@ class CandidateRequirements:
     max_concurrency: int | None = None
     unknown_is_eligible: bool = False
     allow_degraded: bool = False
+    estimated_tokens: int | None = None
+    estimated_cost: float | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "required",
+            frozenset(canonical_capability(value) for value in self.required),
+        )
         budget = self.budget_remaining
         if budget is not None and (not _is_finite_number(budget) or budget < 0):
             raise ValueError("budget_remaining must be a finite non-negative number")
@@ -68,6 +91,16 @@ class CandidateRequirements:
             type(self.max_concurrency) is not int or self.max_concurrency < 1
         ):
             raise ValueError("max_concurrency must be a positive integer")
+        if self.estimated_tokens is not None and (
+            type(self.estimated_tokens) is not int
+            or not _is_finite_number(self.estimated_tokens)
+            or self.estimated_tokens < 0
+        ):
+            raise ValueError("estimated_tokens must be a finite non-negative integer")
+        if self.estimated_cost is not None and (
+            not _is_finite_number(self.estimated_cost) or self.estimated_cost < 0
+        ):
+            raise ValueError("estimated_cost must be a finite non-negative number")
         if any(
             type(value) is not bool
             for value in (self.protected, self.unknown_is_eligible, self.allow_degraded)
@@ -96,6 +129,7 @@ class RuntimeObservation:
     eligible: bool | None = None
     error: str | None = None
     raw: Mapping[str, Any] = field(default_factory=dict)
+    token_headroom: int | None = None
 
 
 @dataclass(frozen=True)
@@ -286,18 +320,11 @@ def _as_int(value: Any) -> int | None:
 def _capabilities(row: Mapping[str, Any]) -> frozenset[str]:
     value = row.get("capabilities", row.get("features", ()))
     if isinstance(value, Mapping):
-        result = {str(k).lower() for k, v in value.items() if v is True}
-        aliases = {
-            "function_calling": "tools",
-            "tool_calling": "tools",
-            "json": "structured_output",
-        }
-        result.update(aliases[k] for k in tuple(result) if k in aliases)
-        return frozenset(result)
+        return frozenset(canonical_capability(k) for k, v in value.items() if v is True)
     if isinstance(value, str):
-        return frozenset(x.strip().lower() for x in value.split(",") if x.strip())
+        return frozenset(canonical_capability(x) for x in value.split(",") if x.strip())
     if isinstance(value, (list, tuple, set, frozenset)):
-        return frozenset(str(x).lower() for x in value)
+        return frozenset(canonical_capability(x) for x in value)
     return frozenset()
 
 
@@ -402,8 +429,19 @@ def _raw_observation(value: Any) -> RuntimeObservation:
     )
     concurrency = value.get("concurrency")
     max_concurrency = value.get("max_concurrency")
+    token_headroom_value = value.get("token_headroom")
+    tokens_remaining_value = value.get("tokens_remaining")
+    token_headroom = (
+        token_headroom_value if token_headroom_value is not None else tokens_remaining_value
+    )
     parsed_concurrency = _as_int(concurrency)
     parsed_max_concurrency = _as_int(max_concurrency)
+    parsed_token_headroom = _as_int(token_headroom)
+    conflicting_token_headroom = (
+        token_headroom_value is not None
+        and tokens_remaining_value is not None
+        and _as_int(token_headroom_value) != _as_int(tokens_remaining_value)
+    )
     malformed = (
         ttl_seconds is None
         or ttl_seconds <= 0
@@ -415,6 +453,15 @@ def _raw_observation(value: Any) -> RuntimeObservation:
         or (error is not None and not isinstance(error, str))
         or (nested_raw is not None and not isinstance(nested_raw, Mapping))
         or any(item is not None and _as_float(item) is None for item in numeric_values)
+        or conflicting_token_headroom
+        or (
+            token_headroom is not None
+            and (
+                parsed_token_headroom is None
+                or not _is_finite_number(parsed_token_headroom)
+                or parsed_token_headroom < 0
+            )
+        )
         or (concurrency is not None and (parsed_concurrency is None or parsed_concurrency < 0))
         or (
             max_concurrency is not None
@@ -445,6 +492,7 @@ def _raw_observation(value: Any) -> RuntimeObservation:
             value.get("quota_remaining_pct", value.get("quota_remaining"))
         ),
         headroom_pct=_as_float(value.get("headroom_pct", value.get("headroom"))),
+        token_headroom=parsed_token_headroom,
         budget_remaining=_as_float(value.get("budget_remaining")),
         cost=_as_float(value.get("cost")),
         concurrency=parsed_concurrency,
@@ -514,6 +562,14 @@ def _observation_is_well_formed(obs: RuntimeObservation) -> bool:
             item is None or 0 <= item <= 100 for item in (obs.quota_remaining_pct, obs.headroom_pct)
         )
         and all(item is None or item >= 0 for item in (obs.budget_remaining, obs.cost))
+        and (
+            obs.token_headroom is None
+            or (
+                type(obs.token_headroom) is int
+                and _is_finite_number(obs.token_headroom)
+                and obs.token_headroom >= 0
+            )
+        )
         and (obs.concurrency is None or (type(obs.concurrency) is int and obs.concurrency >= 0))
         and (
             obs.max_concurrency is None
@@ -851,7 +907,8 @@ def _policy_reason(
     candidate: AvailabilityCandidate, requirements: CandidateRequirements
 ) -> str | None:
     model = candidate.model
-    missing = sorted(requirements.required - model.capabilities)
+    model_capabilities = frozenset(canonical_capability(value) for value in model.capabilities)
+    missing = sorted(requirements.required - model_capabilities)
     if missing:
         return f"missing capability: {missing[0]}"
     if requirements.allow_models and model.id not in requirements.allow_models:
@@ -1086,9 +1143,12 @@ class OmniRouteAvailabilityAdapter:
                 continue
             value = mapping.get(model.id, mapping.get(model.provider, mapping.get("default", {})))
             states.append(normalize_observation(model, _raw_observation(value), now=current))
-        # Budget and concurrency are hard runtime gates, not ranking hints.
+        # Request capacity and concurrency are hard runtime gates, not ranking hints.
         for index, item in enumerate(states):
-            if not _availability_state_is_eligible(item, requirements):
+            if item.state is AvailabilityState.UNKNOWN:
+                if not _availability_state_is_eligible(item, requirements):
+                    continue
+            elif item.state not in {AvailabilityState.READY, AvailabilityState.DEGRADED}:
                 continue
             raw = _raw_observation(
                 mapping.get(
@@ -1096,12 +1156,30 @@ class OmniRouteAvailabilityAdapter:
                 )
             )
             reasons = []
-            if (
-                requirements.budget_remaining is not None
-                and raw.cost is not None
-                and raw.cost > requirements.budget_remaining
-            ):
-                reasons.append("budget exceeded")
+            known_costs = [
+                value for value in (requirements.estimated_cost, raw.cost) if value is not None
+            ]
+            estimated_cost = max(known_costs) if known_costs else None
+            budget_limits = [
+                value
+                for value in (requirements.budget_remaining, raw.budget_remaining)
+                if value is not None
+            ]
+            if estimated_cost is not None and budget_limits:
+                if estimated_cost > min(budget_limits):
+                    reasons.append(
+                        "budget headroom exceeded"
+                        if requirements.estimated_cost is not None
+                        or raw.budget_remaining is not None
+                        else "budget exceeded"
+                    )
+            elif requirements.estimated_cost is not None:
+                reasons.append("budget headroom unknown")
+            if requirements.estimated_tokens is not None:
+                if raw.token_headroom is None:
+                    reasons.append("token headroom unknown")
+                elif requirements.estimated_tokens > raw.token_headroom:
+                    reasons.append("token headroom exceeded")
             if (
                 requirements.max_concurrency is not None
                 and raw.concurrency is not None
@@ -1109,8 +1187,15 @@ class OmniRouteAvailabilityAdapter:
             ):
                 reasons.append("concurrency limit reached")
             if reasons:
+                denied = any(
+                    reason.endswith("exceeded") or reason.endswith("reached") for reason in reasons
+                )
                 states[index] = replace(
-                    item, state=AvailabilityState.POLICY_DENIED, reasons=tuple(reasons)
+                    item,
+                    state=(
+                        AvailabilityState.POLICY_DENIED if denied else AvailabilityState.DEGRADED
+                    ),
+                    reasons=tuple(reasons),
                 )
         eligible = select_capable_candidates(states, requirements)
         freshness = max(

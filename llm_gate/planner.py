@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any
 
+from llm_gate.availability import CandidateRequirements, canonical_capability
 from llm_gate.contracts import TaskSpec, VerificationPlan, WorkflowPlan
 
 
@@ -61,6 +63,10 @@ class PlanResult:
 
 
 PlannerCallable = Callable[[dict[str, Any]], dict[str, Any]]
+_EFFORT_TOKEN_RESERVATIONS = {"low": 1_024, "medium": 8_192, "high": 32_768}
+_EFFORT_COST_RESERVATIONS = {"low": 0.05, "medium": 1.0, "high": 5.0}
+_EFFORT_LATENCY_RESERVATIONS = {"low": 2_000, "medium": 15_000, "high": 60_000}
+_ESTIMATE_BASIS = "deterministic_effort_reservation_v1"
 
 # Compatibility names used by the public planner API and fixtures.
 PlanningUnavailable = PlanningUnavailableError
@@ -165,6 +171,7 @@ class StructuredPlanner:
     @staticmethod
     def capability_requirements(task_spec: TaskSpec) -> dict[str, Any]:
         """Describe required capabilities for a dispatcher, not a model choice."""
+        budget = task_spec.budget
         return {
             "reasoning": task_spec.reasoning,
             "tools": sorted(task_spec.tools),
@@ -172,11 +179,36 @@ class StructuredPlanner:
             "effort": task_spec.effort,
             "verification": task_spec.verification,
             "production_impact": task_spec.production_impact,
+            "estimated_tokens": budget.get("estimated_tokens"),
+            "estimated_cost": budget.get("estimated_usd"),
+            "budget_remaining": budget.get("remaining_usd", budget.get("max_usd")),
         }
 
     def estimate_requirements(self, task_spec: TaskSpec) -> dict[str, Any]:
         """Compatibility alias for capability and effort estimation."""
         return self.capability_requirements(task_spec)
+
+    @staticmethod
+    def availability_requirements(task_spec: TaskSpec) -> CandidateRequirements:
+        """Compile a planned task into hard pre-ranking availability gates."""
+        budget = task_spec.budget
+        protected = (
+            task_spec.production_impact
+            or task_spec.destructive_operation
+            or task_spec.degraded_mode_policy == "deny"
+        )
+        return CandidateRequirements(
+            required=frozenset(
+                canonical_capability(value) for value in task_spec.required_capabilities
+            ),
+            protected=protected,
+            budget_remaining=budget.get("remaining_usd", budget.get("max_usd")),
+            estimated_tokens=budget.get("estimated_tokens"),
+            estimated_cost=budget.get("estimated_usd"),
+            allow_degraded=(
+                task_spec.degraded_mode_policy == "allow_with_penalty" and not protected
+            ),
+        )
 
     def route(self, objective: str, **kwargs: Any) -> PlanResult:
         """Compatibility alias; routing remains separate from model selection."""
@@ -305,8 +337,10 @@ class StructuredPlanner:
             ),
             budget={
                 **budget,
-                "estimated_usd": {"low": 0.05, "medium": 1.0, "high": 5.0}[effort],
-                "estimated_latency_ms": {"low": 2_000, "medium": 15_000, "high": 60_000}[effort],
+                "estimated_tokens": _EFFORT_TOKEN_RESERVATIONS[effort],
+                "estimated_usd": _EFFORT_COST_RESERVATIONS[effort],
+                "estimated_latency_ms": _EFFORT_LATENCY_RESERVATIONS[effort],
+                "estimate_basis": _ESTIMATE_BASIS,
             },
             context=context_data,
             production_impact=any(word in lower for word in ("production", "deploy")),
@@ -341,6 +375,20 @@ class StructuredPlanner:
             else fallback.workflow_plan
         )
         protected = fallback.task_spec.degraded_mode_policy == "deny"
+        effort_ranks = {"low": 0, "medium": 1, "high": 2}
+        proposed_effort = task.effort if task.effort in effort_ranks else fallback.task_spec.effort
+        effort = (
+            fallback.task_spec.effort
+            if effort_ranks[proposed_effort] < effort_ranks[fallback.task_spec.effort]
+            else proposed_effort
+        )
+        capacity_floor = {
+            **fallback.task_spec.budget,
+            "estimated_tokens": _EFFORT_TOKEN_RESERVATIONS[effort],
+            "estimated_usd": _EFFORT_COST_RESERVATIONS[effort],
+            "estimated_latency_ms": _EFFORT_LATENCY_RESERVATIONS[effort],
+            "estimate_basis": _ESTIMATE_BASIS,
+        }
         task = replace(
             task,
             objective=fallback.task_spec.objective,
@@ -349,17 +397,13 @@ class StructuredPlanner:
             destructive_operation=fallback.task_spec.destructive_operation
             or task.destructive_operation,
             degraded_mode_policy="deny" if protected else task.degraded_mode_policy,
-            effort=(
-                fallback.task_spec.effort
-                if {"low": 0, "medium": 1, "high": 2}.get(task.effort, 0)
-                < {"low": 0, "medium": 1, "high": 2}.get(fallback.task_spec.effort, 0)
-                else task.effort
-            ),
+            effort=effort,
             required_capabilities=list(
                 dict.fromkeys(
                     [*fallback.task_spec.required_capabilities, *task.required_capabilities]
                 )
             ),
+            budget=self._apply_capacity_floor(task.budget, capacity_floor),
         )
         if protected:
             workflow = replace(
@@ -375,13 +419,76 @@ class StructuredPlanner:
         )
 
     def _enforce_budget(self, task: TaskSpec, budget: dict[str, Any] | None) -> None:
-        limit = self.policy.max_cost_usd
-        requested = (budget or {}).get("max_usd")
-        estimated = float(task.budget.get("estimated_usd", task.budget.get("max_usd", 0)))
-        if requested is not None and estimated > float(requested):
+        try:
+            estimated = _finite_non_negative_number(
+                task.budget.get("estimated_usd", task.budget.get("max_usd", 0)),
+                "estimated budget",
+            )
+            requested = (
+                None
+                if (budget or {}).get("max_usd") is None
+                else _finite_non_negative_number((budget or {})["max_usd"], "requested budget")
+            )
+            limit = (
+                None
+                if self.policy.max_cost_usd is None
+                else _finite_non_negative_number(self.policy.max_cost_usd, "planner budget")
+            )
+        except (OverflowError, TypeError, ValueError) as exc:
+            raise PlanRejected("budget must be a finite non-negative number") from exc
+        if requested is not None and estimated > requested:
             raise PlanRejected("plan exceeds requested budget")
         if limit is not None and estimated > limit:
             raise PlanRejected("budget exceeds planner policy")
+
+    @staticmethod
+    def _apply_capacity_floor(
+        proposed_budget: Mapping[str, Any], fallback_budget: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        try:
+            proposed_tokens = _finite_non_negative_integer(
+                proposed_budget.get("estimated_tokens", 0), "estimated_tokens"
+            )
+            proposed_cost = _finite_non_negative_number(
+                proposed_budget.get("estimated_usd", 0), "estimated_usd"
+            )
+            proposed_latency = _finite_non_negative_integer(
+                proposed_budget.get("estimated_latency_ms", 0),
+                "estimated_latency_ms",
+            )
+        except (OverflowError, TypeError, ValueError) as exc:
+            raise PlanRejected("planner estimate must be finite and non-negative") from exc
+        result = dict(proposed_budget)
+        result["estimated_tokens"] = max(proposed_tokens, int(fallback_budget["estimated_tokens"]))
+        result["estimated_usd"] = max(proposed_cost, float(fallback_budget["estimated_usd"]))
+        result["estimated_latency_ms"] = max(
+            proposed_latency, int(fallback_budget["estimated_latency_ms"])
+        )
+        result["estimate_basis"] = fallback_budget["estimate_basis"]
+        for key in ("max_usd", "remaining_usd"):
+            if key in fallback_budget:
+                result[key] = fallback_budget[key]
+        return result
+
+
+def _finite_non_negative_number(value: Any, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{label} must be numeric")
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0:
+        raise ValueError(f"{label} must be finite and non-negative")
+    return parsed
+
+
+def _finite_non_negative_integer(value: Any, label: str) -> int:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not math.isfinite(float(value))
+        or value < 0
+    ):
+        raise ValueError(f"{label} must be a finite non-negative integer")
+    return value
 
 
 # Compatibility names used by integrations that prefer explicit boundaries.

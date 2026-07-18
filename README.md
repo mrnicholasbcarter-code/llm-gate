@@ -259,3 +259,14 @@ selectable. Non-protected callers may explicitly set
 observations; protected work still rejects them. The separate
 `unknown_is_eligible` opt-in admits only fresh, internally consistent
 `unknown` evidence—never missing, stale, malformed, or contradictory data.
+
+The planner library emits conservative token and cost reservations. Integrations
+compose this alpha contract explicitly by passing
+`StructuredPlanner.availability_requirements(task_spec)` to the availability
+adapter before scoring; the current `IntelligenceService` does not yet
+orchestrate that transport path. A candidate must have enough normalized token
+and budget headroom. Missing headroom is degraded and fail-closed by default;
+known insufficient headroom is denied. Protected work cannot opt into degraded
+capacity evidence. See the
+[routing policy](docs/specs/ROUTING_POLICY.md#41-conservative-capacity-reservations)
+for the versioned reservation basis and exact semantics.
