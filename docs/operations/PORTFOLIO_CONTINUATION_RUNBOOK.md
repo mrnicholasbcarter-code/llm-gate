@@ -405,7 +405,7 @@ stale and is never live availability authority.
 
 | Repository | Revision | Local proof | Exact-SHA remote proof |
 |---|---|---|---|
-| `llm-gate` | `842adb84758f0bd207c42f6212be8fa33ef14d5e` | Ruff and strict mypy clean; 224 tests passed | CI `29653604423`, Lint `29653604410`, CodeQL `29653604431` succeeded |
+| `llm-gate` | `336a79c1a0a06106440b4c09d7ff845f94bb483a` | Ruff and strict mypy clean; 265 tests passed; Bandit and package checks passed | CI `29656461784`, Lint `29656461782`, CodeQL `29656461798` succeeded |
 | `llm-gate-node` | `c154c8f36a2922d580afe34bde16ff1c92cc4ac8` | Clean install/package evidence captured | Clean Install CI `29652350472`, Lint `29652350448`, CodeQL `29652350443` succeeded |
 
 Earlier verified `llm-gate` slices:
@@ -415,10 +415,13 @@ Earlier verified `llm-gate` slices:
 - `b874de3` — static quality gates
 - `1bc26a3` — runtime-state filtering before ranking
 - `842adb8` — fail-closed contradictory runtime evidence
+- `6999fd9` — product vision, source index, and Hindsight metadata contract
+- `336a79c` — planned token/cost/latency capacity admission
 
-Issue 55 remains open. The availability portion is green, but estimated-token
-and estimated-cost normalization plus the remaining capacity/planner contract
-are unfinished.
+Issue 55 is closed with independent approval and exact-SHA workflow evidence.
+Issue 54 is the next P0 slice: finish the documented, credential-safe
+OmniRoute catalog/runtime transport seams and capability discovery. Issue 56
+then adds bounded cache/stale-while-revalidate behavior and explain freshness.
 
 ## Known operational pitfalls
 
@@ -466,8 +469,9 @@ are unfinished.
    table and inspect new issues/PRs.
 2. Confirm OmniRoute health, run the one-token direct probe, and run the exact
    Codex CLI canary for any delegated model.
-3. Create an isolated worktree for issue 55.
-4. Implement estimated-token and estimated-cost normalization plus the
-   remaining capacity/planner contract as one reviewed atomic slice.
+3. Create an isolated worktree for issue 54.
+4. Implement only documented OmniRoute catalog/runtime transports and
+   capability discovery with strict endpoint, timeout, response-size, secret
+   redaction, and typed-error boundaries.
 5. Re-run all local gates, integrate onto current main, push, watch the exact
    SHA, update issue/Project evidence, and retain the next sanitized checkpoint.

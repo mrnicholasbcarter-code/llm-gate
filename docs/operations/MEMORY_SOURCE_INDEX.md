@@ -131,7 +131,7 @@ a claim that each repository is release-ready.
 
 | Repository | Observed revision | Source role |
 |---|---|---|
-| `llm-gate` | `842adb84758f0bd207c42f6212be8fa33ef14d5e` | Verified pre-documentation base revision; resolve the commit containing this source index with `git log -- docs/operations` |
+| `llm-gate` | `336a79c1a0a06106440b4c09d7ff845f94bb483a` | Verified capacity-admission revision before this checkpoint refresh; resolve the commit containing this source index with `git log -- docs/operations` |
 | `llm-gate-node` | `c154c8f36a2922d580afe34bde16ff1c92cc4ac8` | TypeScript/Express surface and parity evidence |
 | `backtest-harness` | `2dfd25b0c2cd157418ae6f2adadf44546bd6cb33` | Monte Carlo and walk-forward product claims to audit |
 | `edge-mining-framework` | `e77ff5e26d8bff9be227bf17aba6dc8be68c3720` | Feature/EV/Kelly gate product claims to audit |
@@ -159,6 +159,7 @@ metadata field until an explicit lifecycle test documents stronger behavior.
 | `ecosystem-ruflo-orchestration-v1` | `upstream-documented`, `proposal` | Release `v3.32.4`, commit `4dd861b`; local adapter remains planned | Optional workflow/swarm boundary |
 | `ecosystem-ruvector-retrieval-v1` | `upstream-documented`, `proposal` | Release `ruvector-core-v2.3.0`, commit `d811d42`; local adapter remains planned | Optional retrieval/graph boundary and evidence requirements |
 | `portfolio-resume-checkpoint-v1` | `verified-evidence`, `local-observation` | Git/GitHub values rechecked at retain time | Exact SHAs, CI runs, blockers, issue, and next atomic task |
+| `portfolio-resume-checkpoint-v2` | `verified-evidence`, `local-observation` | Supersedes v1 after issue 55 and exact-SHA CI were rechecked | `llm-gate` capacity completion, issue state, blockers, and issue 54 as the next atomic task |
 
 The installed plugin's retain path uses string-valued metadata. Keep structured
 classification in tags or encode it as a comma-delimited string rather than
