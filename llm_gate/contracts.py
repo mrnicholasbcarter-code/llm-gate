@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import MISSING, asdict, dataclass, field, fields
+from dataclasses import MISSING, Field, asdict, dataclass, field, fields
 from typing import Any, ClassVar, TypeVar, cast
 
 
@@ -24,13 +24,15 @@ class Contract:
         if not isinstance(payload, dict):
             raise ContractValidationError("contract must be a JSON object")
         _reject_secrets(payload)
-        allowed = {item.name for item in fields(cast(Any, cls))}
+        declared_fields = fields(cast(Any, cls))
+        allowed = {item.name for item in declared_fields}
         unknown = set(payload) - allowed
         if unknown:
             raise ContractValidationError(f"unknown field(s): {', '.join(sorted(unknown))}")
+        _validate_version_field(payload, cls=cls, declared_fields=declared_fields)
         missing = [
             item.name
-            for item in fields(cast(Any, cls))
+            for item in declared_fields
             if item.default is MISSING
             and item.default_factory is MISSING
             and item.name not in payload
@@ -221,6 +223,27 @@ def contract_from_dict(name: str, payload: dict[str, Any]) -> Contract:
         return _CONTRACTS[name].from_dict(payload)
     except KeyError as exc:
         raise ContractValidationError(f"unknown contract: {name}") from exc
+
+
+def _version_field(cls: type[Contract], declared_fields: tuple[Field[Any], ...]) -> Field[Any] | None:
+    for item in declared_fields:
+        if item.name == "schema_version":
+            return cast(Field[Any], item)
+    return None
+
+
+def _validate_version_field(
+    payload: dict[str, Any], *, cls: type[Contract], declared_fields: tuple[Field[Any], ...]
+) -> None:
+    version_field = _version_field(cls, declared_fields)
+    if version_field is None:
+        return
+    expected = version_field.default
+    actual = payload.get(version_field.name, expected)
+    if actual != expected:
+        raise ContractValidationError(
+            f"{cls.__name__}.{version_field.name} must be {expected!r}, got {actual!r}"
+        )
 
 
 def _reject_secrets(value: Any) -> None:

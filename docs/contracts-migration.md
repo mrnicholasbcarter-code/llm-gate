@@ -5,6 +5,10 @@ The JSON is intentionally usable by Python and `llm-gate-node`; unknown fields a
 rejected at contract boundaries, while arbitrary forward-compatible data is kept
 under `metadata` only. Never put credentials or bearer tokens in metadata.
 
+Each v1 contract freezes `schema_version` to the literal string `"1"`. Producers
+may omit the field and rely on the v1 default, but any explicit non-`"1"` value
+must be rejected by both JSON Schema validation and the Python contract loader.
+
 ## From criticality/tier
 
 The legacy `criticality` and integer `tier` values remain accepted by the
