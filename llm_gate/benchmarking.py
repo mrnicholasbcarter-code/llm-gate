@@ -12,13 +12,13 @@ import json
 import os
 import platform
 import subprocess
-import sys
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import median
-from typing import Any, Callable, Sequence
+from typing import Any, cast
 
 from llm_gate.contracts import AvailabilitySnapshot, RoutingDecisionContract, TaskSpec
 from llm_gate.dispatcher import SwarmDispatcher
@@ -71,7 +71,7 @@ def _summarize(samples_ns: Sequence[int]) -> dict[str, int | float | str]:
 
 def load_benchmark_fixture(path: str | os.PathLike[str] = DEFAULT_FIXTURE_PATH) -> dict[str, Any]:
     fixture_path = Path(path)
-    return json.loads(fixture_path.read_text())
+    return cast(dict[str, Any], json.loads(fixture_path.read_text()))
 
 
 def _git_commit() -> str | None:

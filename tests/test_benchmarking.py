@@ -25,24 +25,24 @@ def test_reproducible_benchmark_report_is_deterministic_in_structure(tmp_path: P
     report_b = run_reproducible_benchmarks(DEFAULT_FIXTURE_PATH)
 
     comparable_keys = {
-        key: report_a[key]
-        for key in report_a
-        if key not in {"generated_at", "benchmarks"}
+        key: report_a[key] for key in report_a if key not in {"generated_at", "benchmarks"}
     }
     comparable_keys_b = {
-        key: report_b[key]
-        for key in report_b
-        if key not in {"generated_at", "benchmarks"}
+        key: report_b[key] for key in report_b if key not in {"generated_at", "benchmarks"}
     }
     assert comparable_keys == comparable_keys_b
 
     benchmark_names_a = [item["name"] for item in report_a["benchmarks"]]
     benchmark_names_b = [item["name"] for item in report_b["benchmarks"]]
-    assert benchmark_names_a == benchmark_names_b == [
-        "contract_roundtrip",
-        "dispatcher_eligibility",
-        "compatibility_routing",
-    ]
+    assert (
+        benchmark_names_a
+        == benchmark_names_b
+        == [
+            "contract_roundtrip",
+            "dispatcher_eligibility",
+            "compatibility_routing",
+        ]
+    )
 
     output_path = tmp_path / "report.json"
     output_path.write_text(json.dumps(report_a, indent=2, sort_keys=True) + "\n")

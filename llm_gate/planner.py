@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any
@@ -167,12 +167,13 @@ class StructuredPlanner:
         """Describe required capabilities for a dispatcher, not a model choice."""
         return {
             "reasoning": task_spec.reasoning,
-            "tools": sorted(task_spec.required_tools),
+            "tools": sorted(task_spec.tools),
             "required_capabilities": sorted(task_spec.required_capabilities),
-            "effort": task_spec.estimated_effort,
+            "effort": task_spec.effort,
             "verification": task_spec.verification,
             "production_impact": task_spec.production_impact,
         }
+
     def estimate_requirements(self, task_spec: TaskSpec) -> dict[str, Any]:
         """Compatibility alias for capability and effort estimation."""
         return self.capability_requirements(task_spec)
@@ -241,11 +242,11 @@ class StructuredPlanner:
         lower = objective.lower()
         criticality = str(request["criticality"])
         context = request.get("context")
-        context_text = " ".join(str(value) for value in (context.values() if isinstance(context, dict) else ())).lower()
+        context_text = " ".join(
+            str(value) for value in (context.values() if isinstance(context, dict) else ())
+        ).lower()
         combined = f"{lower} {context_text}"
-        protected = any(
-            keyword in combined for keyword in self.policy.protected_keywords
-        )
+        protected = any(keyword in combined for keyword in self.policy.protected_keywords)
         steps: list[dict[str, Any]]
         if any(word in lower for word in ("parallel", "independent specialists")):
             kind = WorkflowKind.PARALLEL
@@ -282,6 +283,10 @@ class StructuredPlanner:
             checks=["tests" if kind != WorkflowKind.SINGLE else "response_schema"],
             on_failure="replan_or_deny",
         )
+        raw_budget = request.get("budget")
+        budget = dict(raw_budget) if isinstance(raw_budget, Mapping) else {}
+        raw_context = request.get("context")
+        context_data = dict(raw_context) if isinstance(raw_context, Mapping) else None
         task = TaskSpec(
             objective=objective,
             task_type=kind.value,
@@ -299,11 +304,11 @@ class StructuredPlanner:
                 else []
             ),
             budget={
-                **dict(request.get("budget") or {}),
+                **budget,
                 "estimated_usd": {"low": 0.05, "medium": 1.0, "high": 5.0}[effort],
                 "estimated_latency_ms": {"low": 2_000, "medium": 15_000, "high": 60_000}[effort],
             },
-            context=request.get("context") if isinstance(request.get("context"), dict) else None,
+            context=context_data,
             production_impact=any(word in lower for word in ("production", "deploy")),
             destructive_operation=any(word in lower for word in ("delete", "destroy", "drop")),
             degraded_mode_policy="deny" if protected else "allow_with_penalty",
@@ -313,7 +318,11 @@ class StructuredPlanner:
             steps=steps,
             verification=verification,
             fallback_allowed=False,
-            metadata={"workflow": kind.value, "model": None, "policy_floor": "protected" if protected else "standard"},
+            metadata={
+                "workflow": kind.value,
+                "model": None,
+                "policy_floor": "protected" if protected else "standard",
+            },
         )
         return PlanResult(task, workflow, {"workflow": kind.value, "model": None})
 
@@ -321,15 +330,24 @@ class StructuredPlanner:
         fallback = self._deterministic(request)
         task_payload = proposed.get("task_spec")
         workflow_payload = proposed.get("workflow_plan")
-        task = TaskSpec.from_dict(task_payload) if isinstance(task_payload, dict) else fallback.task_spec
-        workflow = WorkflowPlan.from_dict(workflow_payload) if isinstance(workflow_payload, dict) else fallback.workflow_plan
+        task = (
+            TaskSpec.from_dict(task_payload)
+            if isinstance(task_payload, dict)
+            else fallback.task_spec
+        )
+        workflow = (
+            WorkflowPlan.from_dict(workflow_payload)
+            if isinstance(workflow_payload, dict)
+            else fallback.workflow_plan
+        )
         protected = fallback.task_spec.degraded_mode_policy == "deny"
         task = replace(
             task,
             objective=fallback.task_spec.objective,
             criticality=fallback.task_spec.criticality,
             production_impact=fallback.task_spec.production_impact or task.production_impact,
-            destructive_operation=fallback.task_spec.destructive_operation or task.destructive_operation,
+            destructive_operation=fallback.task_spec.destructive_operation
+            or task.destructive_operation,
             degraded_mode_policy="deny" if protected else task.degraded_mode_policy,
             effort=(
                 fallback.task_spec.effort
@@ -352,7 +370,9 @@ class StructuredPlanner:
             )
         else:
             workflow = replace(workflow, metadata={**workflow.metadata, "model": None})
-        return PlanResult(task, workflow, {"workflow": workflow.metadata.get("workflow"), "model": None})
+        return PlanResult(
+            task, workflow, {"workflow": workflow.metadata.get("workflow"), "model": None}
+        )
 
     def _enforce_budget(self, task: TaskSpec, budget: dict[str, Any] | None) -> None:
         limit = self.policy.max_cost_usd

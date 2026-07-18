@@ -45,7 +45,10 @@ def _truthy(value: str | None) -> bool:
 
 
 def validate_server_security(
-    *, host: str, token: str | None = None, allow_anonymous: bool | None = None,
+    *,
+    host: str,
+    token: str | None = None,
+    allow_anonymous: bool | None = None,
     unix_socket: str | None = None,
 ) -> ServerSecurity:
     """Validate that startup cannot create an unintentionally public anonymous server."""
@@ -94,9 +97,14 @@ def validate_upstream_url(base_url: str, *, allow_private_hosts: set[str] | None
         addresses = {ipaddress.ip_address(host)}
     except ValueError:
         addresses = set()
-    if addresses and any(
-        address.is_private or address.is_loopback or address.is_link_local for address in addresses
-    ) and host not in allowed:
+    if (
+        addresses
+        and any(
+            address.is_private or address.is_loopback or address.is_link_local
+            for address in addresses
+        )
+        and host not in allowed
+    ):
         raise ValueError("upstream URL targets a private or loopback host not in the allowlist")
     return normalized
 

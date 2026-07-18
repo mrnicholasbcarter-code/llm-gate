@@ -957,7 +957,9 @@ def main() -> None:
 
     serve_p = subparsers.add_parser("serve", help="Launch the FastAPI microservice")
     serve_p.add_argument("--port", type=int, default=8000)
-    serve_p.add_argument("--host", default=None, help="Bind address (anonymous mode must be loopback)")
+    serve_p.add_argument(
+        "--host", default=None, help="Bind address (anonymous mode must be loopback)"
+    )
 
     # New: detect command
     detect_p = subparsers.add_parser("detect", help="Detect available LLM providers")

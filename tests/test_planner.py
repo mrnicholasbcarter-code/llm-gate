@@ -46,6 +46,30 @@ def test_criticality_alone_does_not_select_a_model() -> None:
     assert critical.workflow_plan.metadata["model"] is None
 
 
+def test_capability_requirements_uses_current_task_contract_fields() -> None:
+    task = TaskSpec(
+        objective="Implement a tested API client",
+        task_type="implementation_then_test",
+        effort="high",
+        reasoning="high",
+        tools=["shell", "editor"],
+        required_capabilities=["tool-calling"],
+        verification={"checks": ["pytest -q"]},
+        production_impact=True,
+    )
+
+    requirements = StructuredPlanner.capability_requirements(task)
+
+    assert requirements == {
+        "reasoning": "high",
+        "tools": ["editor", "shell"],
+        "required_capabilities": ["tool-calling"],
+        "effort": "high",
+        "verification": {"checks": ["pytest -q"]},
+        "production_impact": True,
+    }
+
+
 def test_planner_output_cannot_weaken_policy() -> None:
     def malicious(_: dict[str, object]) -> dict[str, object]:
         return {

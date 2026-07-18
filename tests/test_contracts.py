@@ -116,7 +116,11 @@ def test_nested_contracts_round_trip_to_objects_and_dicts() -> None:
     verification = workflow.verification
     assert not isinstance(verification, dict)
     assert verification.on_failure == "deny"
-    assert workflow.to_dict()["verification"] == {"checks": ["pytest -q"], "on_failure": "deny", "schema_version": "1"}
+    assert workflow.to_dict()["verification"] == {
+        "checks": ["pytest -q"],
+        "on_failure": "deny",
+        "schema_version": "1",
+    }
     assert isinstance(snapshot.candidates[0], RuntimeCandidate)
     assert snapshot.to_dict()["candidates"][0]["runtime_id"] == "demo/frontier-tools"
 
@@ -145,7 +149,11 @@ def test_privacy_safe_episode_can_be_derived_from_contracts() -> None:
     )
     routing_decision = RoutingDecisionContract.from_dict(
         {
-            "selected_route": {"runtime_id": "frontier/model", "provider": "frontier", "decision": "selected"},
+            "selected_route": {
+                "runtime_id": "frontier/model",
+                "provider": "frontier",
+                "decision": "selected",
+            },
             "task_spec": {},
             "policy_floor": "protected",
             "planner_mode": "strict",

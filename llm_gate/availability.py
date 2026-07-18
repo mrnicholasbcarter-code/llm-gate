@@ -101,15 +101,15 @@ class OmniRouteTransportError(RuntimeError):
         super().__init__(f"{operation}: {detail}")
 
 
-class OmniRouteTransportTimeout(OmniRouteTransportError):
+class OmniRouteTransportTimeout(OmniRouteTransportError):  # noqa: N818 - public API
     """Transport timed out while fetching a documented OmniRoute operation."""
 
 
-class OmniRouteTransportMalformed(OmniRouteTransportError):
+class OmniRouteTransportMalformed(OmniRouteTransportError):  # noqa: N818 - public API
     """Transport returned malformed data for a documented OmniRoute operation."""
 
 
-class OmniRouteTransportUnsupported(OmniRouteTransportError):
+class OmniRouteTransportUnsupported(OmniRouteTransportError):  # noqa: N818 - public API
     """Transport does not implement a documented OmniRoute operation."""
 
 
@@ -264,13 +264,13 @@ def _capability_mapping(rows: Any) -> Mapping[str, frozenset[str]]:
     if isinstance(rows, Mapping):
         rows = rows.get("data", rows.get("models", rows.get("items", rows)))
         if isinstance(rows, Mapping):
-            result: dict[str, frozenset[str]] = {}
+            mapped: dict[str, frozenset[str]] = {}
             for key, value in rows.items():
                 if not isinstance(key, str):
                     continue
                 payload = value if isinstance(value, Mapping) else {"capabilities": value}
-                result[key] = _capabilities(payload)
-            return result
+                mapped[key] = _capabilities(payload)
+            return mapped
     if not isinstance(rows, list):
         return {}
     result: dict[str, frozenset[str]] = {}
@@ -536,7 +536,9 @@ def explain_candidates(
     return sorted(rows, key=lambda x: x["model"])
 
 
-def _call_transport_operation(transport: Any, names: tuple[str, ...], fallback: Any = _MISSING) -> Any:
+def _call_transport_operation(
+    transport: Any, names: tuple[str, ...], fallback: Any = _MISSING
+) -> Any:
     last_error: OmniRouteTransportError | None = None
     for name in names:
         operation = getattr(transport, name, None)
@@ -591,9 +593,11 @@ def discover_transport_capabilities(transport: Any) -> frozenset[str]:
                 if allowlisted:
                     operations.update(
                         {
-                            "catalog" if item in CATALOG_TRANSPORT_OPERATIONS else
-                            "runtime" if item in RUNTIME_TRANSPORT_OPERATIONS else
-                            "discover_capabilities"
+                            "catalog"
+                            if item in CATALOG_TRANSPORT_OPERATIONS
+                            else "runtime"
+                            if item in RUNTIME_TRANSPORT_OPERATIONS
+                            else "discover_capabilities"
                             for item in allowlisted
                         }
                     )
@@ -620,7 +624,9 @@ class OmniRouteAvailabilityAdapter:
         current = _now(now or (self.clock() if self.clock else None))
         errors: list[str] = []
         try:
-            catalog_payload = _call_transport_operation(self.transport, CATALOG_TRANSPORT_OPERATIONS)
+            catalog_payload = _call_transport_operation(
+                self.transport, CATALOG_TRANSPORT_OPERATIONS
+            )
             capability_payload = _call_transport_operation(
                 self.transport, CAPABILITY_TRANSPORT_OPERATIONS, fallback=None
             )
@@ -632,7 +638,9 @@ class OmniRouteAvailabilityAdapter:
         except OmniRouteTransportUnsupported as exc:
             return AvailabilityReport((), (), "omniroute", None, (str(exc),))
         except OmniRouteTransportError as exc:
-            return AvailabilityReport((), (), "omniroute", None, (f"{exc.operation} transport: malformed",))
+            return AvailabilityReport(
+                (), (), "omniroute", None, (f"{exc.operation} transport: malformed",)
+            )
         try:
             runtime = _call_transport_operation(self.transport, RUNTIME_TRANSPORT_OPERATIONS)
         except OmniRouteTransportTimeout:

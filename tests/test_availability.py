@@ -39,35 +39,53 @@ def test_runtime_states_distinguish_quota_cooldown_and_auth() -> None:
         source="fixture",
         health="healthy",
     )
-    assert normalize_observation(
-        ModelInfo(id="a", provider="p", capability_tier=2),
-        RuntimeObservation(**base, quota_remaining_pct=0),
-        now=NOW,
-    ).state is AvailabilityState.QUOTA_EXHAUSTED
-    assert normalize_observation(
-        ModelInfo(id="b", provider="p", capability_tier=2),
-        RuntimeObservation(**base, cooldown_until="2026-07-16T12:05:00Z"),
-        now=NOW,
-    ).state is AvailabilityState.RATE_LIMITED
-    assert normalize_observation(
-        ModelInfo(id="c", provider="p", capability_tier=2),
-        RuntimeObservation(**base, auth="unauthorized"),
-        now=NOW,
-    ).state is AvailabilityState.UNAUTHORIZED
+    assert (
+        normalize_observation(
+            ModelInfo(id="a", provider="p", capability_tier=2),
+            RuntimeObservation(**base, quota_remaining_pct=0),
+            now=NOW,
+        ).state
+        is AvailabilityState.QUOTA_EXHAUSTED
+    )
+    assert (
+        normalize_observation(
+            ModelInfo(id="b", provider="p", capability_tier=2),
+            RuntimeObservation(**base, cooldown_until="2026-07-16T12:05:00Z"),
+            now=NOW,
+        ).state
+        is AvailabilityState.RATE_LIMITED
+    )
+    assert (
+        normalize_observation(
+            ModelInfo(id="c", provider="p", capability_tier=2),
+            RuntimeObservation(**base, auth="unauthorized"),
+            now=NOW,
+        ).state
+        is AvailabilityState.UNAUTHORIZED
+    )
 
 
 def test_capability_filter_is_deterministic_and_explains_exclusions() -> None:
     candidates = [
-        ModelInfo(id="p/vision", provider="p", capability_tier=1, capabilities=frozenset({"vision", "tools"})),
+        ModelInfo(
+            id="p/vision",
+            provider="p",
+            capability_tier=1,
+            capabilities=frozenset({"vision", "tools"}),
+        ),
         ModelInfo(id="p/tools", provider="p", capability_tier=1, capabilities=frozenset({"tools"})),
     ]
     requirements = CandidateRequirements(required=frozenset({"vision", "tools"}))
     states = [
         normalize_observation(
-            candidates[0], RuntimeObservation(observed_at=NOW, source="fixture", health="healthy"), now=NOW
+            candidates[0],
+            RuntimeObservation(observed_at=NOW, source="fixture", health="healthy"),
+            now=NOW,
         ),
         normalize_observation(
-            candidates[1], RuntimeObservation(observed_at=NOW, source="fixture", health="healthy"), now=NOW
+            candidates[1],
+            RuntimeObservation(observed_at=NOW, source="fixture", health="healthy"),
+            now=NOW,
         ),
     ]
 
@@ -76,7 +94,12 @@ def test_capability_filter_is_deterministic_and_explains_exclusions() -> None:
 
     assert [item.model.id for item in eligible] == ["p/vision"]
     assert explanation == [
-        {"model": "p/tools", "state": "capability_mismatch", "rejected": True, "reason": "missing capability: vision"},
+        {
+            "model": "p/tools",
+            "state": "capability_mismatch",
+            "rejected": True,
+            "reason": "missing capability: vision",
+        },
         {"model": "p/vision", "state": "eligible", "rejected": False, "reason": "eligible"},
     ]
 
@@ -88,7 +111,5 @@ def test_unknown_is_not_eligible_for_protected_work() -> None:
         now=NOW,
     )
 
-    assert select_capable_candidates(
-        [state], CandidateRequirements(protected=True)
-    ) == []
+    assert select_capable_candidates([state], CandidateRequirements(protected=True)) == []
     assert state.state is AvailabilityState.UNKNOWN

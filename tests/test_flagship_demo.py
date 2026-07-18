@@ -46,6 +46,8 @@ def test_cli_output_ignores_provider_environment_variables() -> None:
         "ANTHROPIC_API_KEY": "sk-demo-anthropic",
         "LLMGATE_UPSTREAM_API_KEY": "sk-demo-upstream",
     }
-    with_env = subprocess.run(command, cwd=ROOT, env=env, check=True, capture_output=True, text=True)
+    with_env = subprocess.run(
+        command, cwd=ROOT, env=env, check=True, capture_output=True, text=True
+    )
 
     assert baseline.stdout == with_env.stdout

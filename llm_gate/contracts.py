@@ -142,7 +142,9 @@ class RuntimeCandidate(Contract):
         model = legacy.pop("model", None)
         runtime_id = legacy.pop("runtime_id", None) or _runtime_id(provider, model)
         if runtime_id is None:
-            raise ContractValidationError("legacy runtime candidate requires runtime_id or provider/model")
+            raise ContractValidationError(
+                "legacy runtime candidate requires runtime_id or provider/model"
+            )
         signals = legacy.pop("signals", {})
         mapped = {
             "runtime_id": runtime_id,
@@ -182,9 +184,7 @@ class AvailabilitySnapshot(Contract):
             "state": legacy.pop("state", "unknown"),
             "signals": signals,
             "candidates": [
-                RuntimeCandidate.from_legacy(item)
-                if isinstance(item, dict)
-                else item
+                RuntimeCandidate.from_legacy(item) if isinstance(item, dict) else item
                 for item in legacy.pop("candidates", [])
             ],
             "source": legacy.pop("source", "legacy"),
@@ -284,10 +284,14 @@ class RoutingDecisionContract(Contract):
             "task_spec": legacy.pop("task_spec", {}),
             "candidate_snapshot": legacy.pop("candidate_snapshot", None),
             "exclusions": [
-                item if isinstance(item, dict) else {"model": str(item), "reason": "legacy alternative"}
+                item
+                if isinstance(item, dict)
+                else {"model": str(item), "reason": "legacy alternative"}
                 for item in alternatives
             ],
-            "policy_floor": legacy.pop("policy_floor", _policy_floor_from_tier(legacy.pop("tier", None))),
+            "policy_floor": legacy.pop(
+                "policy_floor", _policy_floor_from_tier(legacy.pop("tier", None))
+            ),
             "planner_mode": legacy.pop("planner_mode", "legacy-routing-decision"),
             "explanation": legacy.pop("reason", ""),
             "adaptive_influence": adaptive_influence,
@@ -343,7 +347,7 @@ class OutcomeEvent(Contract):
         normalized = dict(payload)
         if "details" in normalized:
             normalized["details"] = redact_contract_secrets(normalized["details"])
-        return cast(T, super().from_dict(normalized))
+        return super().from_dict(normalized)
 
     @classmethod
     def from_legacy(cls, payload: dict[str, Any], /, **overrides: Any) -> OutcomeEvent:
@@ -431,7 +435,11 @@ class WorkflowEpisode(Contract):
 
     @classmethod
     def from_workflow_plan(cls, workflow_plan: WorkflowPlan | dict[str, Any]) -> WorkflowEpisode:
-        workflow = workflow_plan if isinstance(workflow_plan, WorkflowPlan) else WorkflowPlan.from_dict(workflow_plan)
+        workflow = (
+            workflow_plan
+            if isinstance(workflow_plan, WorkflowPlan)
+            else WorkflowPlan.from_dict(workflow_plan)
+        )
         verification = workflow.verification
         verification_checks = []
         if isinstance(verification, VerificationPlan):
@@ -487,7 +495,11 @@ class OutcomeEpisode(Contract):
         *,
         routing_decision: RoutingDecisionContract | dict[str, Any] | None = None,
     ) -> OutcomeEpisode:
-        outcome = outcome_event if isinstance(outcome_event, OutcomeEvent) else OutcomeEvent.from_dict(outcome_event)
+        outcome = (
+            outcome_event
+            if isinstance(outcome_event, OutcomeEvent)
+            else OutcomeEvent.from_dict(outcome_event)
+        )
         decision = None
         policy_floor = None
         selected_route: dict[str, Any] = {}
@@ -572,9 +584,13 @@ class TaskWorkflowOutcomeEpisode(Contract):
         )
         return cls(
             episode_id=episode_id,
-            request_id=outcome_episode.request_id or (route.request_id if route is not None else None),
-            correlation_id=outcome_episode.correlation_id or (route.correlation_id if route is not None else None),
-            policy_version=(route.policy_version if route is not None else workflow_episode.policy_version),
+            request_id=outcome_episode.request_id
+            or (route.request_id if route is not None else None),
+            correlation_id=outcome_episode.correlation_id
+            or (route.correlation_id if route is not None else None),
+            policy_version=(
+                route.policy_version if route is not None else workflow_episode.policy_version
+            ),
             task=task_episode,
             workflow=workflow_episode,
             outcome=outcome_episode,
@@ -686,10 +702,12 @@ def _fingerprint_payload(value: Any) -> str:
     return fingerprint_text(canonical)
 
 
-def _version_field(cls: type[Contract], declared_fields: tuple[Field[Any], ...]) -> Field[Any] | None:
+def _version_field(
+    cls: type[Contract], declared_fields: tuple[Field[Any], ...]
+) -> Field[Any] | None:
     for item in declared_fields:
         if item.name == "schema_version":
-            return cast(Field[Any], item)
+            return item
     return None
 
 
@@ -717,10 +735,8 @@ def _reject_secrets(value: Any) -> None:
                 or normalized.endswith("_secret")
                 or normalized.endswith("_password")
                 or normalized.endswith("_api_key")
-            ):
-                # A previously redacted diagnostic payload is safe to deserialize.
-                if child != "[redacted]":
-                    raise ContractValidationError(f"secret-bearing field rejected: {key}")
+            ) and child != "[redacted]":
+                raise ContractValidationError(f"secret-bearing field rejected: {key}")
             _reject_secrets(child)
     elif isinstance(value, (list, tuple)):
         for child in value:

@@ -4,10 +4,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 import llm_gate.api as api
-from llm_gate.security import fingerprint_text
 from llm_gate.logger import log_decision
 from llm_gate.models import RoutingDecision
 from llm_gate.proxy import UpstreamProxy
+from llm_gate.security import fingerprint_text
 
 
 def test_proxy_requires_bearer_token_by_default(monkeypatch) -> None:

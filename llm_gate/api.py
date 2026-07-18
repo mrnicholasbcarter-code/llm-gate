@@ -32,7 +32,9 @@ DEFAULT_ALLOWED_PRIVATE_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
 def _allowed_private_hosts() -> set[str]:
     configured = os.getenv("LLMGATE_UPSTREAM_ALLOW_PRIVATE_HOSTS", "")
-    return DEFAULT_ALLOWED_PRIVATE_HOSTS | {item.strip().lower() for item in configured.split(",") if item.strip()}
+    return DEFAULT_ALLOWED_PRIVATE_HOSTS | {
+        item.strip().lower() for item in configured.split(",") if item.strip()
+    }
 
 
 def _build_proxy() -> UpstreamProxy:
@@ -43,7 +45,9 @@ def _build_proxy() -> UpstreamProxy:
     if timeout_ms <= 0:
         raise ValueError("LLMGATE_UPSTREAM_TIMEOUT_MS must be positive")
     return UpstreamProxy(
-        base_url, api_key=api_key, timeout=timeout_ms / 1000,
+        base_url,
+        api_key=api_key,
+        timeout=timeout_ms / 1000,
         allow_private_hosts=_allowed_private_hosts(),
     )
 
@@ -124,7 +128,13 @@ async def caller_authentication(request: Request, call_next: Any) -> Response:
     authorization = request.headers.get("authorization", "")
     scheme, _, supplied = authorization.partition(" ")
     if scheme.lower() != "bearer" or not supplied:
-        return JSONResponse(status_code=401, content={"error": {"message": "authentication required", "type": "authentication_error"}}, headers={"www-authenticate": "Bearer"})
+        return JSONResponse(
+            status_code=401,
+            content={
+                "error": {"message": "authentication required", "type": "authentication_error"}
+            },
+            headers={"www-authenticate": "Bearer"},
+        )
     if not bearer_matches(supplied, token):
         return _proxy_error(403, "authentication failed")
     return cast(Response, await call_next(request))
@@ -332,10 +342,22 @@ def start_server(port: int = 8000, host: str | None = None) -> None:
     """Boot the uvicorn server with explicit production security defaults."""
     import uvicorn
 
-    configured_host: str = host if host is not None else cast(str, os.getenv("LLMGATE_HOST", "127.0.0.1"))
+    configured_host: str = (
+        host if host is not None else cast(str, os.getenv("LLMGATE_HOST", "127.0.0.1"))
+    )
     unix_socket = os.getenv("LLMGATE_UNIX_SOCKET") or None
-    allow_anonymous = os.getenv("LLMGATE_ALLOW_ANONYMOUS", "false").lower() in {"1", "true", "yes", "on"}
-    validate_server_security(host=configured_host, token=os.getenv("LLMGATE_AUTH_TOKEN") or None, allow_anonymous=allow_anonymous, unix_socket=unix_socket)
+    allow_anonymous = os.getenv("LLMGATE_ALLOW_ANONYMOUS", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    validate_server_security(
+        host=configured_host,
+        token=os.getenv("LLMGATE_AUTH_TOKEN") or None,
+        allow_anonymous=allow_anonymous,
+        unix_socket=unix_socket,
+    )
     kwargs: dict[str, Any] = {"port": port}
     if unix_socket:
         kwargs["uds"] = unix_socket
