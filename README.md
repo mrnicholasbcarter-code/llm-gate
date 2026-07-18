@@ -209,3 +209,31 @@ supply-chain evidence.
 ## License
 
 [MIT](LICENSE)
+
+## Dynamic availability probes
+
+`llm-gate` discovers opaque model IDs from the configured OpenAI-compatible
+`/v1/models` catalog. Discovery alone leaves candidates in `unknown` state.
+For a bounded usage/availability check, supply the discovered IDs to
+`ProbeRunner` and inject an OpenAI-compatible transport:
+
+```python
+from llm_gate import ProbePolicy, ProbeRunner, openai_probe_transport
+
+transport = openai_probe_transport("http://127.0.0.1:20128/v1")
+observations = ProbeRunner(ProbePolicy(max_models_per_run=8)).run(
+    discovered_model_ids,
+    transport,
+)
+```
+
+Each probe sends only a fixed `Return exactly: OK` prompt with `max_tokens=1`,
+no tools, no user/project data, and a bounded timeout. Results record only
+status, latency, usage counters, redacted error class/message, cooldown, and
+quarantine state. A successful HTTP response is `ready` only when it includes
+both positive token usage and non-empty assistant output; an empty or
+usage-free response remains `degraded`. The runner enforces per-run
+count/concurrency bounds, exponential cooldown, and quarantine after repeated
+failures. Use the resulting `ProbeObservation.as_runtime_observation()` with
+the availability adapter; do not treat vector/RAG memory as live health
+authority.
