@@ -202,8 +202,15 @@ switching across the whole catalog, exactly the substrate the principle needs.
 - **Q1 — Protected-work frontier floor:** is the orchestrator *allowed* to pick a non-frontier
   worker for protected work, or is a deterministic frontier floor mandatory? (Plan assumes:
   protected → frontier-tier worker only, gate-enforced.)
-- **Q2 — OmniRoute per-model detail endpoint:** docs reference a "fetch model details" capability;
-  the **exact path is unconfirmed this session** — verify at wire time, do not guess the URL.
+- **Q2 — OmniRoute model-detail surface (VERIFIED this session from OmniRoute API_REFERENCE.md):**
+  - `GET /v1/models` — OpenAI-format list of all chat/embedding/image models + combos (3,628 models; each exposes `id`, `pricing.input/output`, `context_length`, `capabilities`). This is the primary catalog for the orchestrator's "review all models" pass.
+  - `GET /api/models/catalog` — all models grouped by **provider + type** (richer grouping than `/v1/models`).
+  - `GET /api/models/alias` — model aliases (`MODEL_ALIAS { alias, targetModel }`); OmniRoute also advertises `claude-3-omniroute-no-thinking/<provider>/<model>` no-thinking variants.
+  - `GET /api/pricing` — model pricing endpoint.
+  - `GET /v1beta/models` + `POST /v1beta/models/{...path}` — Gemini-native format mirror.
+  - The per-model detail capability is therefore satisfied by `/v1/models` + `/api/models/catalog`
+    (no separate `/v1/models/{id}` was found in the docs). The `probes.py` single-token probe is the
+    live-truth complement to these catalog endpoints.
 - **Q3 — Learning transport:** does `record_outcome` go to ruflo SONA directly, or through a
   Hindsight/AgentDB pattern store the router reads? (Plan assumes SONA hooks + ReasoningBank.)
 - **Q4 — Orchestrator identity:** when the orchestrator *is* Hermes, is "the frontier model"
