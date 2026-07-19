@@ -28,6 +28,7 @@ Unlike naive routing switches, `llm-gate` enforces **hard deterministic gates** 
 * [**Intelligence Adapter Protocol**](docs/intelligence-adapter-protocol.md): Subprocess endpoints and payload contracts for `ruflo` and `ruvector` hooks.
 * [**Integration Guide**](docs/integration-guide.md): Set up instructions for Cursor, VSCode, LiteLLM, and TypeScript.
 * [**Release Acceptance Checklists**](docs/release-checklists.md): Core metrics, coverage gates, and static analysis checks.
+*   [**Project Memory (Hindsight)**](docs/PROJECT_MEMORY.md) — Run long-term memory through OmniRoute with free/unlimited models.
 
 ---
 

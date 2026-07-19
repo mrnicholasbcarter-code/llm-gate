@@ -48,3 +48,5 @@ coverage.xml
 .swarm/
 CLAUDE.md
 skills-lock.json
+
+.env.memory
