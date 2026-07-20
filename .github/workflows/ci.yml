@@ -94,18 +94,18 @@ jobs:
           cache: pip
       - name: Minimal install smoke
         run: |
-          python -m venv /tmp/llm-gate-minimal
-          /tmp/llm-gate-minimal/bin/python -m pip install --upgrade pip
-          /tmp/llm-gate-minimal/bin/python -m pip install .
-          /tmp/llm-gate-minimal/bin/llm-gate --help
-          /tmp/llm-gate-minimal/bin/llm-gate route "format this README" --criticality low --terse
+          python -m venv /tmp/verdict-minimal
+          /tmp/verdict-minimal/bin/python -m pip install --upgrade pip
+          /tmp/verdict-minimal/bin/python -m pip install .
+          /tmp/verdict-minimal/bin/verdict --help
+          /tmp/verdict-minimal/bin/verdict route "format this README" --criticality low --terse
       - name: Complete install smoke
         run: |
-          python -m venv /tmp/llm-gate-complete
-          /tmp/llm-gate-complete/bin/python -m pip install --upgrade pip
-          /tmp/llm-gate-complete/bin/python -m pip install ".[all,server]"
-          /tmp/llm-gate-complete/bin/llm-gate detect --json
-          /tmp/llm-gate-complete/bin/python - <<'PY'
+          python -m venv /tmp/verdict-complete
+          /tmp/verdict-complete/bin/python -m pip install --upgrade pip
+          /tmp/verdict-complete/bin/python -m pip install ".[all,server]"
+          /tmp/verdict-complete/bin/verdict detect --json
+          /tmp/verdict-complete/bin/python - <<'PY'
           from llm_gate.api import app
 
           assert app is not None
@@ -131,11 +131,11 @@ jobs:
         run: python -m twine check dist/*
       - name: Wheel install smoke
         run: |
-          python -m venv /tmp/llm-gate-wheel
-          /tmp/llm-gate-wheel/bin/python -m pip install --upgrade pip
-          /tmp/llm-gate-wheel/bin/python -m pip install dist/*.whl
-          /tmp/llm-gate-wheel/bin/llm-gate --help
-          /tmp/llm-gate-wheel/bin/llm-gate detect --json
+          python -m venv /tmp/verdict-wheel
+          /tmp/verdict-wheel/bin/python -m pip install --upgrade pip
+          /tmp/verdict-wheel/bin/python -m pip install dist/*.whl
+          /tmp/verdict-wheel/bin/verdict --help
+          /tmp/verdict-wheel/bin/verdict detect --json
       - name: Upload distribution artifacts
         uses: actions/upload-artifact@v7
         with:

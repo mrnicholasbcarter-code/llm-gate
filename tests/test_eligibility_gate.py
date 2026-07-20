@@ -10,15 +10,16 @@ These tests prove the AC:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
-import llm_gate.intelligence as intel
-from llm_gate.availability import AvailabilityCandidate, AvailabilityReport, AvailabilityState
-from llm_gate.availability_cache import AvailabilityCache
-from llm_gate.eligibility import EligibilityGate, EligibilityVerdict
-from llm_gate.intelligence import IntelligenceService
-from llm_gate.models import ModelInfo, ProviderConfig, RoutingDecision
-from llm_gate.router import select_best_model
+import verdict.intelligence as intel
+from verdict.availability import AvailabilityCandidate, AvailabilityReport, AvailabilityState
+from verdict.availability_cache import AvailabilityCache
+from verdict.eligibility import EligibilityGate, EligibilityVerdict
+from verdict.intelligence import IntelligenceService
+from verdict.models import ModelInfo, ProviderConfig, RoutingDecision
+from verdict.router import select_best_model
 
 
 def _candidate(model_id: str, state: str, tier: int = 2) -> AvailabilityCandidate:
@@ -26,7 +27,7 @@ def _candidate(model_id: str, state: str, tier: int = 2) -> AvailabilityCandidat
         model=ModelInfo(id=model_id, provider=model_id.split("/", 1)[0], capability_tier=tier),
         state=AvailabilityState(state),
         reasons=(f"probe:{state}",),
-        source="llm-gate:probe",
+        source="verdict:probe",
     )
 
 
@@ -128,7 +129,8 @@ def test_intelligence_route_filters_before_ranking(monkeypatch: Any) -> None:
     report = _report(("a/1", "eligible"), ("b/2", "denied"))
     cache = _cache(report)
     gate = EligibilityGate(cache.get, protected_fail_closed=True, allow_unverified_in_dev=True)
-    # Patch the names as bound inside intelligence.route (it imports them
+
+    # Patch names bound inside intelligence.route (it imports them
     # locally, so patching the source modules would not take effect).
     monkeypatch.setattr(intel, "scan", lambda task: (None, ""))
     monkeypatch.setattr(
@@ -140,7 +142,7 @@ def test_intelligence_route_filters_before_ranking(monkeypatch: Any) -> None:
         ],
     )
 
-    # Stub the planner so "write a test" is not auto-escalated to critical
+    # Stub planner "write test" not auto-escalated critical
     # effort (which would force final_tier=0 and route to primary by design).
     class _TaskSpec:
         effort = "low"
@@ -150,13 +152,14 @@ def test_intelligence_route_filters_before_ranking(monkeypatch: Any) -> None:
 
     svc = _service_with_gate(gate)
     svc.planner.plan = lambda task, context=None, criticality=None: _Plan()
-    # low criticality -> non-critical tier, so the verified eligible model is
+
+    # low criticality non-critical tier, verified eligible model is
     # actually selected (critical tier always routes to primary by design).
-    dec = svc.route("write a test", criticality="low")
+    dec = asyncio.run(svc.route("write test", criticality="low"))
     assert isinstance(dec, RoutingDecision)
-    # Both candidates are tier-0 (so tier filtering does not decide); only the
-    # availability gate differentiates them. The denied model must never win.
-    assert dec.model != "b/2"
+    # Both candidates tier-0 (so tier filtering not decide); only the
+    # availability gate differentiates them. denied model must win.
+    assert dec.model == "a/1"
     assert dec.candidate_states, "candidate_states must carry gate records"
 
 
@@ -164,7 +167,7 @@ def test_explain_surfaces_eligible_set_and_exclusions(monkeypatch: Any) -> None:
     """Issue #73: explain endpoint exposes the full pre-ranking eligible set."""
     from fastapi.testclient import TestClient
 
-    import llm_gate.api as api
+    import verdict.api as api
 
     report = _report(("a/1", "eligible"), ("b/2", "denied"))
     cache = _cache(report)
@@ -185,7 +188,7 @@ def test_explain_surfaces_eligible_set_and_exclusions(monkeypatch: Any) -> None:
 def test_explain_per_model_carries_eligibility(monkeypatch: Any) -> None:
     from fastapi.testclient import TestClient
 
-    import llm_gate.api as api
+    import verdict.api as api
 
     report = _report(("a/1", "eligible"), ("b/2", "denied"))
     cache = _cache(report)

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from llm_gate.availability import (
+from verdict.availability import (
     AvailabilityState,
     CandidateRequirements,
     RuntimeObservation,
@@ -12,7 +12,7 @@ from llm_gate.availability import (
     normalize_observation,
     select_capable_candidates,
 )
-from llm_gate.models import ModelInfo
+from verdict.models import ModelInfo
 
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 

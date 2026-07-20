@@ -2,9 +2,9 @@ from typing import ClassVar
 
 from fastapi.testclient import TestClient
 
-import llm_gate.api as api
-from llm_gate.intelligence import ReadinessReport
-from llm_gate.models import RoutingDecision
+import verdict.api as api
+from verdict.intelligence import ReadinessReport
+from verdict.models import RoutingDecision
 
 
 class FakeProxy:
@@ -37,7 +37,7 @@ class FakeIntelligence:
             adapter_versions={"ruflo": "ruflo", "ruvector": "ruvector"},
         )
 
-    def route(
+    async def route(
         self, task: str, criticality: str = "medium", context: dict[str, object] | None = None
     ) -> RoutingDecision:
         if criticality == "critical":

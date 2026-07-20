@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import httpx
 import pytest
 
-from llm_gate.availability import (
+from verdict.availability import (
     AvailabilityState,
     CandidateRequirements,
     OmniRouteAvailabilityAdapter,
@@ -17,7 +17,7 @@ from llm_gate.availability import (
     OmniRouteTransportUnauthorized,
     OmniRouteTransportUnsupported,
 )
-from llm_gate.omniroute import OmniRouteHTTPTransport
+from verdict.omniroute import OmniRouteHTTPTransport
 
 NOW = datetime(2026, 7, 18, 18, 0, tzinfo=timezone.utc)
 MOCK_ALLOWLIST = {"router.example.test"}

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-from llm_gate.contracts import (
+from verdict.contracts import (
     AvailabilitySnapshot,
     ContractValidationError,
     OutcomeEpisode,
@@ -216,7 +216,7 @@ def test_legacy_task_contract_migrates_to_task_spec() -> None:
         {
             "task": "Ship the contracts migration",
             "criticality": "high",
-            "context": {"repo": "llm-gate"},
+            "context": {"repo": "verdict"},
             "custom_hint": "preserve under metadata",
         },
     )
@@ -224,7 +224,7 @@ def test_legacy_task_contract_migrates_to_task_spec() -> None:
     assert isinstance(migrated, TaskSpec)
     assert migrated.objective == "Ship the contracts migration"
     assert migrated.criticality == "high"
-    assert migrated.context == {"repo": "llm-gate"}
+    assert migrated.context == {"repo": "verdict"}
     assert migrated.metadata["legacy"] == {"custom_hint": "preserve under metadata"}
 
 

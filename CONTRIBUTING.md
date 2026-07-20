@@ -1,12 +1,12 @@
-# Contributing to llm-gate
+# Contributing to verdict
 
 Thanks for your interest. Here's how to contribute.
 
 ## Setup
 
 ```bash
-git clone https://github.com/mrnicholasbcarter-code/llm-gate.git
-cd llm-gate
+git clone https://github.com/mrnicholasbcarter-code/verdict.git
+cd verdict
 python -m venv .venv && source .venv/bin/activate
 pip install -e '.[dev,server]'
 ```

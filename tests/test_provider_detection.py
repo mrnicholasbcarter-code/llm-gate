@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from llm_gate import provider_detection as pd
-from llm_gate.provider_detection import DetectedProvider, DetectionResult
+from verdict import provider_detection as pd
+from verdict.provider_detection import DetectedProvider, DetectionResult
 
 
 @pytest.fixture(autouse=True)
@@ -208,9 +208,9 @@ def test_detect_cloud_apis_skips_cli_providers(monkeypatch: pytest.MonkeyPatch) 
 def test_detect_custom_endpoints_from_env_and_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    cfg_dir = tmp_path / ".config" / "llm-gate"
+    cfg_dir = tmp_path / ".config" / "verdict"
     cfg_dir.mkdir(parents=True)
-    (cfg_dir / "llm-gate.yaml").write_text(
+    (cfg_dir / "verdict.yaml").write_text(
         "providers:\n"
         "  local-router:\n"
         "    base_url: http://localhost:20128/v1\n"
@@ -321,7 +321,7 @@ def test_format_detection_report_recommends_router_when_only_cloud_or_local() ->
 
 
 def test_generate_config_prefers_router_local_then_cloud() -> None:
-    router_config = pd.generate_llm_gate_config(
+    router_config = pd.generate_verdict_config(
         DetectionResult(
             centralized_routers=[
                 DetectedProvider(
@@ -338,7 +338,7 @@ def test_generate_config_prefers_router_local_then_cloud() -> None:
     assert router_config["primary_model"] == "router-primary"
     assert router_config["providers"]["9router"]["base_url"] == "http://localhost:20128/v1"
 
-    local_config = pd.generate_llm_gate_config(
+    local_config = pd.generate_verdict_config(
         DetectionResult(
             local_servers=[
                 DetectedProvider(
@@ -354,7 +354,7 @@ def test_generate_config_prefers_router_local_then_cloud() -> None:
     )
     assert local_config["primary_model"] == "llama3"
 
-    anthropic_config = pd.generate_llm_gate_config(
+    anthropic_config = pd.generate_verdict_config(
         DetectionResult(
             cli_providers=[
                 DetectedProvider(
@@ -368,7 +368,7 @@ def test_generate_config_prefers_router_local_then_cloud() -> None:
     )
     assert anthropic_config["providers"]["anthropic"]["api_key_env"] == "ANTHROPIC_API_KEY"
 
-    openrouter_config = pd.generate_llm_gate_config(
+    openrouter_config = pd.generate_verdict_config(
         DetectionResult(
             cli_providers=[
                 DetectedProvider(
@@ -382,7 +382,7 @@ def test_generate_config_prefers_router_local_then_cloud() -> None:
     )
     assert openrouter_config["providers"]["openrouter"]["api_key_env"] == "OPENROUTER_API_KEY"
 
-    empty_config = pd.generate_llm_gate_config(DetectionResult())
+    empty_config = pd.generate_verdict_config(DetectionResult())
     assert empty_config == {
         "primary_model": "anthropic/claude-3-opus-20240229",
         "providers": {},

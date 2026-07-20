@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from llm_gate.benchmarking import (
+from verdict.benchmarking import (
     DEFAULT_FIXTURE_PATH,
     format_benchmark_report,
     load_benchmark_fixture,

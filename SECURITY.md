@@ -46,7 +46,7 @@ For a deliberately anonymous server, set `LLMGATE_ALLOW_ANONYMOUS=true` and bind
 only to loopback:
 
 ```bash
-LLMGATE_ALLOW_ANONYMOUS=true llm-gate serve --host 127.0.0.1 --port 8000
+LLMGATE_ALLOW_ANONYMOUS=true verdict serve --host 127.0.0.1 --port 8000
 ```
 
 Anonymous mode is rejected on non-loopback addresses and is not a production
@@ -73,7 +73,7 @@ credentials, full prompts, completions, and full task text are not written to
 decision logs. The default logger may still retain identifiers, model/provider
 names, policy fields, and safe error categories.
 
-Retention is an operator responsibility: `llm-gate` does not provide a hosted
+Retention is an operator responsibility: `verdict` does not provide a hosted
 retention service, automatic deletion schedule, encryption-at-rest guarantee, or
 compliance certification. Choose a restrictive `log_path`, filesystem access
 policy, rotation, backup, and deletion schedule appropriate to your data. Keep

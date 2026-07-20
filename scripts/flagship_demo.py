@@ -20,15 +20,15 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from llm_gate.availability import (
+from verdict.availability import (
     CandidateRequirements,
     RuntimeObservation,
     explain_candidates,
     normalize_observation,
     select_capable_candidates,
 )
-from llm_gate.contracts import RoutingDecisionContract, TaskSpec
-from llm_gate.models import ModelInfo
+from verdict.contracts import RoutingDecisionContract, TaskSpec
+from verdict.models import ModelInfo
 
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 

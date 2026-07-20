@@ -6,7 +6,7 @@
 
 ## Outcome
 
-Finish `llm-gate` as the portfolio flagship, bring `llm-gate-node` to an honest
+Finish `verdict` as the portfolio flagship, bring `verdict-node` to an honest
 parity boundary, and then verify and polish the remaining portfolio repositories.
 No model, provider, or capability tier is treated as a permanent product fact.
 Runtime candidates come from the configured catalog and must pass deterministic
@@ -164,7 +164,7 @@ Steps:
    package inspection, and benchmark fixtures.
 5. Reconcile every README and release-matrix claim with captured evidence.
 
-### Task 8: `llm-gate-node` parity
+### Task 8: `verdict-node` parity
 
 Files:
 

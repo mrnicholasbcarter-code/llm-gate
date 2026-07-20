@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from llm_gate import cli
-from llm_gate.provider_detection import DetectedProvider, DetectionResult
+from verdict import cli
+from verdict.provider_detection import DetectedProvider, DetectionResult
 
 
 @pytest.fixture(autouse=True)
@@ -20,9 +20,9 @@ def isolated_config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
 def test_cmd_route_terse_uses_configured_primary(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    cfg_dir = tmp_path / ".config" / "llm-gate"
+    cfg_dir = tmp_path / ".config" / "verdict"
     cfg_dir.mkdir(parents=True)
-    (cfg_dir / "llm-gate.yaml").write_text(
+    (cfg_dir / "verdict.yaml").write_text(
         "primary_model: test-primary\n"
         "log_path: route-log.jsonl\n"
         "providers:\n"
@@ -97,7 +97,7 @@ def test_cmd_detect_json_and_config(
     monkeypatch.setattr(cli, "detect_all_providers", lambda: result, raising=False)
 
     # Patch imported provider-detection functions through module import path used by cmd_detect.
-    import llm_gate.provider_detection as provider_detection
+    import verdict.provider_detection as provider_detection
 
     monkeypatch.setattr(provider_detection, "detect_all_providers", lambda: result)
 
@@ -114,7 +114,7 @@ def test_cmd_detect_json_and_config(
 
 
 def test_cmd_detect_exits_nonzero_on_detection_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    import llm_gate.provider_detection as provider_detection
+    import verdict.provider_detection as provider_detection
 
     def fail() -> DetectionResult:
         raise RuntimeError("boom")
@@ -139,26 +139,26 @@ def test_cmd_benchmark_rejects_live_provider_without_explicit_opt_in() -> None:
 def test_main_dispatches_help_route_stats_detect(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(cli.sys, "argv", ["llm-gate"])
+    monkeypatch.setattr(cli.sys, "argv", ["verdict"])
     cli.main()
     assert "Available commands" in capsys.readouterr().out
 
-    monkeypatch.setattr(cli.sys, "argv", ["llm-gate", "route", "hello", "--terse"])
+    monkeypatch.setattr(cli.sys, "argv", ["verdict", "route", "hello", "--terse"])
     cli.main()
     assert "anthropic/claude-3-opus-20240229" in capsys.readouterr().out
 
     monkeypatch.setattr(
         cli.sys,
         "argv",
-        ["llm-gate", "stats", "--log_path", str(tmp_path / "missing.jsonl")],
+        ["verdict", "stats", "--log_path", str(tmp_path / "missing.jsonl")],
     )
     cli.main()
     assert "No log file found" in capsys.readouterr().out
 
-    import llm_gate.provider_detection as provider_detection
+    import verdict.provider_detection as provider_detection
 
     monkeypatch.setattr(provider_detection, "detect_all_providers", lambda: DetectionResult())
-    monkeypatch.setattr(cli.sys, "argv", ["llm-gate", "detect", "--json"])
+    monkeypatch.setattr(cli.sys, "argv", ["verdict", "detect", "--json"])
     cli.main()
     assert '"local_servers"' in capsys.readouterr().out
 
@@ -184,7 +184,7 @@ def test_main_dispatches_benchmark_command(
     monkeypatch.setattr(
         cli.sys,
         "argv",
-        ["llm-gate", "benchmark", "--output-json", str(output_path)],
+        ["verdict", "benchmark", "--output-json", str(output_path)],
     )
 
     cli.main()
@@ -201,7 +201,7 @@ def test_cmd_setup_auto_and_sync_mock(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
 
     # define mocks
-    from llm_gate.provider_detection import DetectedProvider, DetectionResult
+    from verdict.provider_detection import DetectedProvider, DetectionResult
 
     result = DetectionResult(
         local_servers=[
@@ -217,7 +217,7 @@ def test_cmd_setup_auto_and_sync_mock(
     )
 
     # mock detect_all_providers
-    import llm_gate.provider_detection as provider_detection
+    import verdict.provider_detection as provider_detection
 
     monkeypatch.setattr(provider_detection, "detect_all_providers", lambda: result)
 
@@ -256,8 +256,8 @@ def test_cmd_setup_auto_and_sync_mock(
     assert posted_nodes[0]["provider"] == "ollama"
     assert posted_nodes[0]["baseUrl"] == "http://localhost:11434/v1"
 
-    # Verify llm-gate config file was written
-    cfg_file = tmp_path / ".config" / "llm-gate" / "llm-gate.yaml"
+    # Verify verdict config file was written
+    cfg_file = tmp_path / ".config" / "verdict" / "verdict.yaml"
     assert cfg_file.exists()
     import yaml
 
@@ -273,9 +273,9 @@ def test_cmd_doctor_all_healthy(
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
 
-    cfg_dir = tmp_path / ".config" / "llm-gate"
+    cfg_dir = tmp_path / ".config" / "verdict"
     cfg_dir.mkdir(parents=True)
-    (cfg_dir / "llm-gate.yaml").write_text(
+    (cfg_dir / "verdict.yaml").write_text(
         "primary_model: anthropic/claude-3-opus-20240229\n"
         "log_path: route-log.jsonl\n"
         "providers:\n"
@@ -320,9 +320,9 @@ def test_cmd_doctor_issues_and_duplicates(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
 
     # Config with issue: literal API key in URL, and duplicate base_url
-    cfg_dir = tmp_path / ".config" / "llm-gate"
+    cfg_dir = tmp_path / ".config" / "verdict"
     cfg_dir.mkdir(parents=True)
-    (cfg_dir / "llm-gate.yaml").write_text(
+    (cfg_dir / "verdict.yaml").write_text(
         "primary_model: anthropic/claude-3-opus-20240229\n"
         "log_path: route-log.jsonl\n"
         "providers:\n"
@@ -371,7 +371,7 @@ def test_cmd_doctor_issues_and_duplicates(
 
     out = capsys.readouterr().out
     assert "Literal API key detected inside the host URL for provider" in out
-    assert "Duplicate host URL configured in llm-gate.yaml" in out
+    assert "Duplicate host URL configured in verdict.yaml" in out
     assert "Duplicate node 'Ollama2'" in out
     assert "node2" in deleted_nodes
 
@@ -385,7 +385,7 @@ def test_cmd_check_missing_config(
     with pytest.raises(SystemExit) as exc:
         cli.cmd_check()
     assert exc.value.code == 1
-    assert "Configuration file (llm-gate.yaml) is missing" in capsys.readouterr().out
+    assert "Configuration file (verdict.yaml) is missing" in capsys.readouterr().out
 
 
 def test_cmd_check_valid_config(
@@ -394,9 +394,9 @@ def test_cmd_check_valid_config(
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
 
-    cfg_dir = tmp_path / ".config" / "llm-gate"
+    cfg_dir = tmp_path / ".config" / "verdict"
     cfg_dir.mkdir(parents=True)
-    (cfg_dir / "llm-gate.yaml").write_text(
+    (cfg_dir / "verdict.yaml").write_text(
         "primary_model: anthropic/claude-3-opus-20240229\n"
         "log_path: route-log.jsonl\n"
         "providers:\n"
@@ -415,9 +415,9 @@ def test_cmd_check_invalid_config(
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
 
-    cfg_dir = tmp_path / ".config" / "llm-gate"
+    cfg_dir = tmp_path / ".config" / "verdict"
     cfg_dir.mkdir(parents=True)
-    (cfg_dir / "llm-gate.yaml").write_text(
+    (cfg_dir / "verdict.yaml").write_text(
         "primary_model: anthropic/claude-3-opus-20240229\n"
         "log_path: route-log.jsonl\n"
         "providers:\n"
@@ -443,7 +443,7 @@ def test_cmd_probe_reports_live_model(
 
         return transport
 
-    monkeypatch.setattr("llm_gate.probes.openai_probe_transport", fake_transport_factory)
+    monkeypatch.setattr("verdict.probes.openai_probe_transport", fake_transport_factory)
     cli.cmd_probe(["some/model:free"], base_url="http://localhost:20128/v1", output_json=True)
     out = json.loads(capsys.readouterr().out)
     assert out[0]["ok"] is True
@@ -461,7 +461,7 @@ def test_cmd_probe_flags_down_model(
 
         return transport
 
-    monkeypatch.setattr("llm_gate.probes.openai_probe_transport", fake_transport_factory)
+    monkeypatch.setattr("verdict.probes.openai_probe_transport", fake_transport_factory)
     with pytest.raises(SystemExit):
         cli.cmd_probe(["down/model"], output_json=False)
     err_out = capsys.readouterr().out

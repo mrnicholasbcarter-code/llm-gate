@@ -1,6 +1,6 @@
 import pytest
 
-from llm_gate.intelligence import IntelligenceService
+from verdict.intelligence import IntelligenceService
 
 
 def test_production_readiness_fails_without_backend() -> None:
@@ -58,7 +58,8 @@ def test_redaction_before_ruflo_call(monkeypatch: pytest.MonkeyPatch) -> None:
         log_full_task=False,
         discovery_ttl=60,
     )
-    decision = svc.route("Here is a task with a private_key=sk-1234567890", criticality="medium")
+    import asyncio
+    decision = asyncio.run(svc.route("Here is a task with a private_key=sk-1234567890", criticality="medium"))
 
     # Must have fallen back efficiently
     assert decision.model == "anthropic/claude-3-opus"

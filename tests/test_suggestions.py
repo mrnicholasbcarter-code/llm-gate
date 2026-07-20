@@ -1,6 +1,6 @@
 import json
 
-from llm_gate.suggestions import SuggestionService
+from verdict.suggestions import SuggestionService
 
 
 def test_generate_suggestions(tmp_path):

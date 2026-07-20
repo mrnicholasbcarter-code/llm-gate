@@ -52,7 +52,7 @@ body:
       value: |
         - OS: [e.g., macOS 14.0, Ubuntu 22.04]
         - Python Version: [e.g., 3.11.0]
-        - llm-gate Version: [e.g., 0.1.0]
+        - verdict Version: [e.g., 0.1.0]
         - Installation Method: [pip, git, pipx]
     validations:
       required: true

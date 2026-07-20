@@ -2,7 +2,7 @@
 
 import pytest
 
-from llm_gate.models import ProviderConfig, RoutingDecision
+from verdict.models import ProviderConfig, RoutingDecision
 
 
 class TestRoutingDecision:

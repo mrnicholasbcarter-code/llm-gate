@@ -1,7 +1,7 @@
 # Portfolio Continuation Runbook
 
 This is the durable operating record for finishing the portfolio with
-`llm-gate` as the flagship. It is intentionally secret-free. Git history,
+`verdict` as the flagship. It is intentionally secret-free. Git history,
 GitHub issues, reviews, and exact-SHA Actions runs are the sources of truth.
 Sanitized Hindsight memories are recall pointers that must be revalidated;
 worker prose is never authority.
@@ -43,7 +43,7 @@ host-native Hermes gateway/orchestrator
           └── GitHub Issues, Projects, PRs, and Actions
                          │
                          ▼
-              llm-gate policy/intelligence
+              verdict policy/intelligence
                          │
                          ▼
               OmniRoute model/provider plane
@@ -66,7 +66,7 @@ never attach two live containers to the same Hermes data directory.
 
 Run OmniRoute as an independently supervised service with persistent storage
 and a loopback endpoint. Keep model identifiers, provider health, quota, price,
-and availability as runtime data. `llm-gate` consumes normalized evidence and
+and availability as runtime data. `verdict` consumes normalized evidence and
 owns deterministic eligibility and explanation; it does not hard-code a
 permanent model catalog.
 
@@ -76,7 +76,7 @@ permanent model catalog.
 |---|---|---|
 | Hermes | Durable orchestration, session continuity, scheduling, bounded delegation | Decide routing eligibility or share one write target across workers |
 | OmniRoute | Unified model endpoint, provider credentials, catalog, runtime transport | Become permanent product policy |
-| `llm-gate` | Versioned contracts, hard gates, availability normalization, planning, explainability | Treat catalog presence as readiness or let ranking bypass a gate |
+| `verdict` | Versioned contracts, hard gates, availability normalization, planning, explainability | Treat catalog presence as readiness or let ranking bypass a gate |
 | Hindsight cloud | Secret-free recall and retain across Codex sessions | Store tokens, raw config, private URLs, prompts, or health authority |
 | GitHub | Issues/Project control plane, code review, exact-SHA CI and release evidence | Substitute a stale PR check for current-main verification |
 
@@ -84,8 +84,8 @@ permanent model catalog.
 
 | Order | Repository | Current focus |
 |---:|---|---|
-| 1 | `llm-gate` | P0 routing, capacity/planner, intelligence, retry, orchestration, then flagship polish |
-| 2 | `llm-gate-node` | Honest Python-parity boundary, package publishing, open-PR reconciliation |
+| 1 | `verdict` | P0 routing, capacity/planner, intelligence, retry, orchestration, then flagship polish |
+| 2 | `verdict-node` | Honest Python-parity boundary, package publishing, open-PR reconciliation |
 | 3 | `backtest-harness` | Repair baseline, refresh applicable PR, reproducibility and release evidence |
 | 4 | `trade-risk-engine` | Repair baseline, refresh applicable PRs, risk-contract and release evidence |
 | 5 | `edge-mining-framework` | Claims, tests, packaging, security, demo, CI |
@@ -220,9 +220,9 @@ Detached worktrees for this Python repository must use the main checkout's
 virtual environment and expose the worktree on `PYTHONPATH`:
 
 ```bash
-PATH=/absolute/llm-gate/.venv/bin:$PATH \
+PATH=/absolute/verdict/.venv/bin:$PATH \
 PYTHONPATH=$PWD \
-/absolute/llm-gate/.venv/bin/pytest -q
+/absolute/verdict/.venv/bin/pytest -q
 ```
 
 Preserve unrelated user changes. Never use destructive reset or checkout
@@ -242,7 +242,7 @@ gh run list --commit "$SHA" --limit 20 \
 ```
 
 Poll the explicit expected set until terminal. The example below is the current
-`llm-gate` set; change it only when the checked-in workflow set changes:
+`verdict` set; change it only when the checked-in workflow set changes:
 
 ```bash
 set -euo pipefail
@@ -343,8 +343,8 @@ Never blindly merge a major dependency update or an old green PR.
 
 Current PR checkpoint:
 
-- `llm-gate` has no open PR.
-- `llm-gate-node` PR 4 remains open and must not be blindly merged.
+- `verdict` has no open PR.
+- `verdict-node` PR 4 remains open and must not be blindly merged.
 - `backtest-harness` PR 5 requires baseline repair and refresh.
 - `trade-risk-engine` PRs 4–10 require baseline repair and refresh.
 - No human-authored PR awaiting approval was found in the audited repositories.
@@ -393,8 +393,8 @@ unredacted provider errors.
 Recommended resume query:
 
 ```text
-Recall the portfolio continuation policy, latest verified llm-gate and
-llm-gate-node SHAs, exact-SHA CI evidence, open blockers, worker canary rules,
+Recall the portfolio continuation policy, latest verified verdict and
+verdict-node SHAs, exact-SHA CI evidence, open blockers, worker canary rules,
 and the next unfinished atomic task.
 ```
 
@@ -405,10 +405,10 @@ stale and is never live availability authority.
 
 | Repository | Revision | Local proof | Exact-SHA remote proof |
 |---|---|---|---|
-| `llm-gate` | `1d51c6617c6832cf91dbea2505ca253586299b7c` | Ruff and strict mypy clean; 313 tests passed; Bandit and package checks passed | CI `29671816216`, Lint `29671816245`, CodeQL Analysis `29671816218` succeeded |
-| `llm-gate-node` | `c154c8f36a2922d580afe34bde16ff1c92cc4ac8` | Clean install/package evidence captured | Clean Install CI `29652350472`, Lint `29652350448`, CodeQL `29652350443` succeeded |
+| `verdict` | `1d51c6617c6832cf91dbea2505ca253586299b7c` | Ruff and strict mypy clean; 313 tests passed; Bandit and package checks passed | CI `29671816216`, Lint `29671816245`, CodeQL Analysis `29671816218` succeeded |
+| `verdict-node` | `c154c8f36a2922d580afe34bde16ff1c92cc4ac8` | Clean install/package evidence captured | Clean Install CI `29652350472`, Lint `29652350448`, CodeQL `29652350443` succeeded |
 
-Earlier verified `llm-gate` slices:
+Earlier verified `verdict` slices:
 
 - `9347ae1` — flagship completion plan
 - `bea3fda` — truthful bounded probes

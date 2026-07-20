@@ -1,14 +1,14 @@
-# Handoff Doc: llm-gate Subcommand & Diagnostics Upgrade
+# Handoff Doc: verdict Subcommand & Diagnostics Upgrade
 
 Passed from Antigravity to Codex GPT-5.6.
 
 ## 1. What was Solved / Added
-* **Check Command (`llm-gate check`)**: Added a non-interactive configuration check subcommand validating:
-  * Missing or corrupted/invalid `llm-gate.yaml`.
+* **Check Command (`verdict check`)**: Added a non-interactive configuration check subcommand validating:
+  * Missing or corrupted/invalid `verdict.yaml`.
   * Malformed syntax.
   * Credential scanning (noting literal `sk-` or `api_key` leaks inside the base URL mapping).
   * Duplicate base URLs within the `providers` map.
-* **Doctor Command (`llm-gate doctor`)**: Diagnostics and repair mode confirming:
+* **Doctor Command (`verdict doctor`)**: Diagnostics and repair mode confirming:
   * Primary model tier mappings (Tier-0 setup checks).
   * OmniRoute database node query endpoint reachability.
   * Duplicate node registrations in local OmniRoute (compares base URLs).

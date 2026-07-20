@@ -32,7 +32,7 @@ def artifact_pair(dist: Path) -> tuple[Path, Path]:
 
 
 def install_and_smoke_test(artifact: Path) -> None:
-    with tempfile.TemporaryDirectory(prefix="llm-gate-release-") as directory:
+    with tempfile.TemporaryDirectory(prefix="verdict-release-") as directory:
         environment = Path(directory) / "venv"
         venv.EnvBuilder(with_pip=True).create(environment)
         python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
