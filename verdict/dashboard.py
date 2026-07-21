@@ -11,7 +11,11 @@ st.set_page_config(page_title="verdict Analytics", page_icon="⚙️", layout="w
 st.title("⚙️ verdict Analytics & Savings")
 st.markdown("Live routing dashboard for evaluating heuristic fallbacks and quota headroom.")
 
-log_path = Path(st.text_input("Path to JSONL Log:", value="verdict-decisions.jsonl"))
+available_logs = sorted(Path.cwd().glob("*.jsonl"))
+default_log = Path.cwd() / "verdict-decisions.jsonl"
+if default_log not in available_logs:
+    available_logs.insert(0, default_log)
+log_path = st.selectbox("Decision log", available_logs, format_func=str)
 
 if not log_path.is_file():
     st.warning(f"Log file not found at {log_path}. Run some tasks first!")
@@ -20,13 +24,12 @@ if not log_path.is_file():
 
 # Parse Data
 @st.cache_data(ttl=5)  # type: ignore[untyped-decorator]
-def load_data(path: str | Path) -> pd.DataFrame:
+def load_data(path: Path) -> pd.DataFrame:
     records = []
-    log_file = Path(path)
 
-    if not log_file.is_file():
+    if not path.is_file():
         return pd.DataFrame()
-    with log_file.open(encoding="utf-8") as f:
+    with path.open(encoding="utf-8") as f:
         for line in f:
             if line.strip():
                 records.append(json.loads(line))
