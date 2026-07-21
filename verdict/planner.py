@@ -9,7 +9,7 @@ from enum import Enum
 from typing import Any
 
 from verdict.availability import CandidateRequirements, canonical_capability
-from verdict.contracts import TaskSpec, VerificationPlan, WorkflowPlan
+from verdict.contracts import ContractValidationError, TaskSpec, VerificationPlan, WorkflowPlan
 
 
 class PlanningUnavailableError(RuntimeError):
@@ -113,6 +113,8 @@ class StructuredPlanner:
         except PlanningUnavailable:
             result = self._deterministic(request)
             mode = "deterministic-fallback"
+        except ContractValidationError as exc:
+            raise PlanRejected(str(exc)) from exc
         self._enforce_budget(result.task_spec, budget)
         return replace(result, metadata={**result.metadata, "planner_mode": mode})
 
@@ -369,11 +371,16 @@ class StructuredPlanner:
             if isinstance(task_payload, dict)
             else fallback.task_spec
         )
-        workflow = (
-            WorkflowPlan.from_dict(workflow_payload)
-            if isinstance(workflow_payload, dict)
-            else fallback.workflow_plan
-        )
+        try:
+            workflow = (
+                WorkflowPlan.from_dict(workflow_payload)
+                if isinstance(workflow_payload, dict)
+                else fallback.workflow_plan
+            )
+        except ContractValidationError:
+            # A structured planner is advisory.  Invalid or unsafe workflow
+            # proposals are discarded and the deterministic plan wins.
+            workflow = fallback.workflow_plan
         protected = fallback.task_spec.degraded_mode_policy == "deny"
         effort_ranks = {"low": 0, "medium": 1, "high": 2}
         proposed_effort = task.effort if task.effort in effort_ranks else fallback.task_spec.effort

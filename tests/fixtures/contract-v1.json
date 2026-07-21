@@ -43,8 +43,9 @@
   "workflow_plan":{
     "steps":[
       {
-        "id":"step-1",
-        "objective":"implement"
+      "id":"step-1",
+      "action":"implement",
+      "objective":"implement"
       }
     ],
     "plan_id":"plan-1",

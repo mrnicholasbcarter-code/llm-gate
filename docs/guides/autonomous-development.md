@@ -23,6 +23,12 @@ Before designing or editing a feature, the lead agent must:
    libraries, global tools, MCP servers, and dirty-worktree changes. Preserve
    existing user changes; never silently reset them.
 
+For contract work, the documentation preflight must also identify the active
+schema, its version/migration rules, and every producer/consumer language
+surface before editing. Validate both the canonical fixture and negative
+fixtures; a permissive parser or a passing happy-path round trip is not proof
+that a safety contract is frozen.
+
 When a Ruflo/RuVector MCP call times out, documentation lookup and runtime
 health are incomplete—not successful. Record the timeout as an `unknown`
 signal, keep protected work fail-closed, and use the bounded recovery sequence
@@ -64,6 +70,11 @@ Use the repository's graph MCP server when available. Rebuild or incrementally
 update a stale graph before relying on its results. Record affected flows,
 blast radius, test gaps, and follow-up tickets. Graph output informs review;
 it does not replace tests or independent review.
+
+The graph is a review aid, not a policy authority: contract changes must still
+be checked against the normative JSON Schema and runtime loader. Keep
+forward-compatible data in explicit metadata/context boundaries rather than
+making safety fields arbitrarily permissive.
 
 ## 3. Make work ticket-backed and bounded
 
