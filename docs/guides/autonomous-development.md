@@ -23,6 +23,26 @@ Before designing or editing a feature, the lead agent must:
    libraries, global tools, MCP servers, and dirty-worktree changes. Preserve
    existing user changes; never silently reset them.
 
+When a Ruflo/RuVector MCP call times out, documentation lookup and runtime
+health are incomplete—not successful. Record the timeout as an `unknown`
+signal, keep protected work fail-closed, and use the bounded recovery sequence
+below before retrying the task:
+
+```bash
+npx ruflo@latest doctor
+npx ruflo@latest status
+# If the MCP service is not starting, inspect the documented listener first:
+lsof -i :3000
+npx ruflo@latest mcp start
+```
+
+Use `doctor --fix` only when the reported repair is understood and within the
+current task's scope. Do not kill an arbitrary process or turn an MCP timeout
+into a healthy/readiness result. Retry only documented transient transport
+failures with a finite budget; authentication failures, malformed responses,
+and repeated timeouts remain unknown and require degraded-mode handling or a
+ticket. The installed Ruflo version is authoritative if command names differ.
+
 The output is a short context record containing sources, assumptions,
 limitations, and the evidence commands to run.
 

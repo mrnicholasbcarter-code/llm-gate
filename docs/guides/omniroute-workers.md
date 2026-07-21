@@ -32,6 +32,28 @@ it must not be converted into “healthy”. Do not read OmniRoute's private
 database or copy provider credentials into Verdict. Capability discovery is
 optional and fail-closed for protected work.
 
+### MCP timeout recovery
+
+An MCP timeout from Ruflo, RuVector, or OmniRoute management is not evidence
+that the provider or worker is ready. Preserve the candidate as `unknown`,
+exclude it from protected work, and diagnose the local orchestration service
+using Ruflo's documented commands:
+
+```bash
+npx ruflo@latest doctor
+npx ruflo@latest status
+lsof -i :3000
+npx ruflo@latest mcp start
+```
+
+The port check is read-only. Resolve the exact owning process before taking
+any process action, and use `doctor --fix` only for a reported, understood
+repair. After recovery, retry the bounded MCP/status operation and require a
+fresh, well-formed response; otherwise keep the result `unknown`. Transient
+timeouts may use finite backoff, but repeated timeouts, `401`/authorization
+failures, malformed payloads, and unavailable optional endpoints must not be
+silently retried until they appear healthy.
+
 The OpenAI-compatible `/v1/models` endpoint is intentionally useful without
 management credentials in local development, but it still only supplies a
 catalog. Verdict's availability adapter/cache is responsible for normalizing
