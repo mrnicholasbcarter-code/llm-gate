@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from llm_gate.contracts import AvailabilitySnapshot, RuntimeCandidate
-from llm_gate.dispatcher import DispatchPolicy, SwarmDispatcher
+from verdict.contracts import AvailabilitySnapshot, RuntimeCandidate
+from verdict.dispatcher import DispatchPolicy, SwarmDispatcher
 
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 

@@ -1,176 +1,126 @@
-# llm-gate Routing Policy
-## Best-appropriate-model selection contract
+# Routing Policy
 
-### 1. Objective
+**Status:** Active
+**Authority:** This policy governs the Verdict Core routing surface. The former
+LLM-gate name is retained only in historical migration material; changes require
+an ADR.
+**Related ADR:** `ADR-ORCHESTRATOR-ROUTING.md` — defines the orchestrator/gate boundary.
 
-Choose the highest expected-quality model that satisfies every hard requirement and is currently eligible. The selector is not a cheapest-model sorter. Cost may break ties or be used only when the user explicitly selects a cost-ceiling mode.
+---
 
-Every request passes through the mandatory `IntelligenceService`. Its deterministic component evaluates policy, capabilities, availability, and explainability. In the production profile, its managed Ruflo/RuVector component supplies a bounded adaptive signal. Adaptive intelligence can rank eligible candidates, but it can never override hard policy.
+## 1. What Verdict IS (The Gate)
 
-The decision must be deterministic for identical inputs, catalog state, policy version, and learned-policy snapshot.
+Verdict is a **thin, deterministic, fail-closed eligibility gate**. It does three things:
 
-### 2. Candidate states
+| Job | Component | Description |
+|-----|-----------|-------------|
+| **Eligibility filtering** | `EligibilityGate` | Consults `AvailabilityCache` + `ProbeRunner`; admits only `eligible`/`ready`/`degraded` candidates. Protected work **fails closed** when live truth is absent. |
+| **Catalog mirror** | `GET /v1/models` | Serves the full live OmniRoute catalog (pricing, capabilities, ratings, context window) so the orchestrator can "review all models like openrouter.ai". |
+| **Explainability** | `GET /v1/route/explain` | Returns full candidate set, pre-ranking eligible set, per-candidate exclusion reasons, cache confidence, refresh errors. |
 
-Every discovered model is normalized into an explicit availability state:
+**The gate is the enforcement layer. It has NO selection logic.**
 
-- `ready`: catalog metadata is valid and the last health/headroom signal permits use.
-- `degraded`: elevated latency or low remaining quota; rejected by default and usable
-  only for non-protected work with an explicit `allow_degraded` opt-in.
-- `unknown`: present in the catalog but not verified. Unknown is not treated as ready by default.
-- `denied`: removed by policy, unsupported capability, privacy restriction, or failed hard gate.
-- `unavailable`, `quota_exhausted`, `rate_limited`, `unauthorized`, `locked_out`,
-  `circuit_open`, `timeout`, and `malformed`: stable hard-exclusion states with
-  redacted explanations.
+---
 
-OmniRoute's `/v1/models` response is a synchronized catalog. It can contain models that are not currently usable. llm-gate MUST apply its own allowlist, denylist, metadata overrides, and optional bounded health probes. An OmniRoute API key's `allowed_models` restriction does not necessarily filter the catalog response, so local filtering is mandatory.
+## 2. What Verdict IS NOT (The Selector)
 
-### 3. Requirement vector
+**Model selection is the orchestrator's job.** The orchestrator (the frontier model you pay for: `LLMGATE_PRIMARY`) performs the expensive cognitive pass **once per unit of work**:
 
-The request classifier produces:
+1. Research task → review live catalog → pick right-sized model per slice
+2. Spec → dispatch to workers (ruflo swarm / agent team / AgentSDK)
+3. Verify worker output → confirm green
+4. Feed outcome to learning loop (`record_outcome` → `ruflo hooks_model-outcome` → SONA/ReasoningBank)
 
-```text
-TaskRequirements {
-  task_class: security | auth | payments | live_execution | production_deploy |
-              architecture | debugging | implementation | tests | docs | formatting | unknown
-  minimum_quality_confidence: 0..1
-  reasoning_level: none | low | medium | high | frontier
-  coding_level: none | low | medium | high
-  context_tokens_required: integer | unknown
-  tools_required: boolean
-  structured_output_required: boolean
-  vision_required: boolean
-  streaming_required: boolean
-  latency_budget_ms: integer | unknown
-  estimated_tokens: non-negative integer
-  estimated_cost_usd: finite non-negative number
-  budget_remaining_usd: finite non-negative number | unknown
-  privacy_class: local_only | trusted_upstream | any
-  protected: boolean
-}
+**The gate does not:**
+- Compute tiers via `classifier.py` regex (DEPRECATED for non-protected path)
+- Rank candidates (`intelligence.route()` no longer calls `select_best_model`)
+- Maintain hardcoded allowlists, tier rings, or worker pools
+- Couple to Ruflo/RuVector **internals** for selection
+
+---
+
+## 3. The Dynamic-Catalog Rule (USER-EXPLICIT)
+
+> **Do NOT hardcode worker allowlists or static tier rings.**
+> Consume the dynamic model list returned by the gateway and assign the best-available model per task criticality.
+> — ADR-149: drop the 3-tier (Haiku/Sonnet/Opus) abstraction, operate on concrete ModelId strings, pick the cheapest model predicted to clear a qualityBar.
+
+**Pitfall:** `classifier.py`'s regex table is a hand-maintained static list — a brand-new capable slug silently lands in tier 2. This is the real "stale heuristic" problem, NOT a hardcoded 3-model allowlist (that misconception has caused wrong fixes before).
+
+**Prefer:** OmniRoute `auto`/`auto/coding` server-side selection or ADR-149 per-ModelId cost-optimal selection over editing the regex.
+
+---
+
+## 4. Protected Work = Deterministic Frontier Floor
+
+For **protected work** (money-level trading decisions, architecture, final synthesis):
+- The orchestrator **may only** dispatch to workers the gate marks `ready`
+- The gate enforces a **deterministic frontier floor** — no model below the safety floor is admitted
+- The floor is derived from the live catalog's capability signal, NOT a hardcoded tier
+
+For **non-protected work** (docs, refactors, analysis, bulk transforms):
+- The orchestrator picks any eligible model from the live catalog
+- Free/mid-tier models are preferred when appropriate
+- The gate admits `eligible`/`ready`/`degraded` (with dev-mode unverified admission flag)
+
+---
+
+## 5. Reuse, Don't Reinvent
+
+Verdict already has the primitives — use them:
+
+| Primitive | Location | Use For |
+|-----------|----------|---------|
+| `ProbeRunner` + `openai_probe_transport` | `verdict/probes.py` | Live one-token probes (built, tested) |
+| `AvailabilityCache` (singleton) | `verdict/availability_cache.py` | Bounded TTL + stale-while-revalidate |
+| `OmniRouteAvailabilityAdapter` / `ProbeEnrichedAdapter` | `verdict/availability.py` | Catalog+runtime or catalog+runtime+probe truth |
+| `SwarmDispatcher` | `verdict/dispatcher.py` | Filters `eligible` by `live_eligible`; records exclusions |
+| ruflo intelligence hooks | CLI/MCP | `hooks_model-route`, `hooks_model-outcome` for learning loop |
+
+**Verdict MUST NOT couple to Ruflo/RuVector internals.** Use the documented CLI/MCP surface, not internal imports.
+
+---
+
+## 6. The #57 / #72 / #73 Contract (Canonical Worked Example)
+
+**Invariant:** Filter candidates before any ranking, and no ranker / Ruflo plan / RuVector result can reintroduce an excluded candidate.
+
+1. Single `EligibilityGate` consults `AvailabilityCache.get(model_id)` — the ONLY authority used by router, dispatcher, Gate, and explain.
+2. Protected work fails closed: when live availability truth is `unknown`/`error`/missing, exclude (do not optimistically admit). Dev/non-protected may admit unverified with a flag.
+3. `/v1/route/explain` (#73) must surface the full candidate set, the pre-ranking eligible set, per-candidate exclusion reasons, and cache confidence/refresh_error — all from the same gate.
+4. Integration tests cover every public route entry point (`/v1/route`, `/v1/chat/completions`, `Gate.route`, `intelligence.route`).
+
+---
+
+## 7. Verification (Run Before Claiming Done)
+
+```bash
+uv run --extra dev --extra dashboard --extra server ruff check . && uv run --extra dev --extra dashboard --extra server ruff format --check .
+uv run --extra dev --extra dashboard --extra server mypy verdict --strict
+uv run pytest -q
+code-review-graph detect-changes  # blast-radius on routing path
+# Exact-SHA CI watch after push (CI/Lint/CodeQL must be green)
 ```
 
-The classifier MUST combine explicit user policy, request shape, known tool fields, model/client hints, deterministic lexical signals, and the bounded IntelligenceService signal. A learned suggestion can increase confidence or rank candidates but cannot lower `protected`, required capability, or a configured quality floor.
+---
 
-### 4. Hard gates
+## 8. Anti-Patterns (Do Not Do)
 
-Hard gates run before scoring:
+| Anti-Pattern | Why It's Wrong | Correct Approach |
+|--------------|----------------|------------------|
+| Add `classifier.py` import to `intelligence.route()` | Puts selection in request path | Orchestrator selects; gate filters |
+| Hardcode `model_allowlist = ["opus", "sonnet"]` | Violates dynamic-catalog rule | Derive from `GET /v1/models` |
+| Store worker outcomes in Verdict's request path | Breaks deterministic enforcement | Subprocess `ruflo hooks_model-outcome` |
+| Call `select_best_model(tier)` in hot path | Tier = stale heuristic | Orchestrator picks by live metadata |
 
-1. Protected task classes require a frontier allowlist or an explicitly validated model policy. A generic name match is not sufficient to lower the floor.
-2. A model without required tool calling, structured output, vision, context, or streaming capability is rejected.
-3. A denied provider/model, privacy-incompatible provider, stale catalog row, or failed health policy is rejected.
-4. A request with unknown risk and a protected keyword is escalated, never downgraded.
-5. An upstream response already started streaming cannot be retried or silently switched.
-6. User-specified `model` is treated as a preference only when `allow_client_model_override=false`; direct override requires an explicit policy flag.
-7. Estimated request tokens must fit the candidate's normalized `token_headroom`
-   (or `tokens_remaining` alias). Estimated cost must fit the smallest known
-   request-policy or runtime budget.
-8. Missing token or cost headroom degrades the candidate and requires an explicit
-   non-protected opt-in. Protected work never admits degraded capacity evidence.
-9. A request that exceeds known token or budget headroom is denied before ranking.
+---
 
-#### 4.1 Conservative capacity reservations
+## 9. For Contributors / Models Pointed At This Repo
 
-The deterministic planner emits an explicit `deterministic_effort_reservation_v1`
-admission reservation:
+- **Read `ADR-ORCHESTRATOR-ROUTING.md` before touching** `router.py`, `intelligence.py`, `gate.py`, `availability.py`, `availability_cache.py`, `probes.py`, or `api.py`.
+- If you are about to add a hardcoded model name, tier, or allowlist — **stop.** Derive it from the live catalog instead.
+- The gate (eligibility/probe/fail-closed) is sacred and deterministic. The *selector* lives in the orchestrator + learning loop, not in the request path.
 
-| Effort | Reserved tokens | Reserved cost (USD) | Reserved latency (ms) |
-| --- | ---: | ---: | ---: |
-| low | 1,024 | 0.05 | 2,000 |
-| medium | 8,192 | 1.00 | 15,000 |
-| high | 32,768 | 5.00 | 60,000 |
+---
 
-These values are conservative routing reservations, not tokenizer output,
-observed usage, pricing estimates, or billing records. They provide deterministic
-floors until a versioned model-aware estimator is introduced. A structured or
-learned planner may raise a reservation but cannot lower these floors. Invalid,
-negative, non-finite, fractional token, or boolean estimates are rejected at the
-planning or availability boundary.
-
-Capacity reasons are stable and machine-readable: `token headroom unknown`,
-`token headroom exceeded`, `budget headroom unknown`, and
-`budget headroom exceeded`.
-
-When both token-headroom aliases are present, they must agree or the observation
-is malformed. When planned and runtime cost estimates are both present, the
-larger estimate is checked against the smallest known budget.
-
-### 5. Scoring
-
-For each eligible candidate, calculate a score with normalized components:
-
-```text
-score =
-  0.35 * quality_confidence
-+ 0.20 * capability_fit
-+ 0.15 * observed_reliability
-+ 0.10 * context_fit
-+ 0.08 * availability_headroom
-+ 0.07 * latency_fit
-+ 0.05 * policy_preference
-- penalties
-```
-
-The weights are configuration, not a hidden constant. For protected tasks, quality and capability weights increase and cost contributes zero. For formatting/docs tasks, quality still has a floor; the router may prefer a fast model only after it remains above that floor.
-
-Tie-breakers, in order:
-
-1. Higher measured quality confidence.
-2. Higher capability fit.
-3. Higher observed reliability.
-4. More remaining headroom.
-5. Lower latency.
-6. Lower cost only if all preceding values are within configured tolerance.
-7. Stable model ID order.
-
-The decision explanation MUST expose the score components and rejected candidates without exposing secrets or raw prompts.
-
-### 6. Intelligence and learning contract
-
-The IntelligenceService is mandatory. Its adaptive learning signal is advisory and bounded:
-
-- Warm-up period: use deterministic policy until a model/task bucket has at least `N` validated outcomes.
-- Every learned adjustment is clamped to `±learned_policy_max_adjustment`.
-- A quality failure, safety escalation, test failure, malformed tool call, or user rejection decreases confidence for the exact model/task bucket.
-- A transport success alone is not a quality success.
-- Policy changes invalidate or version learned snapshots.
-- The router records the chosen model, candidate set, policy version, features, and delayed outcome ID.
-- A missing or unhealthy managed adaptive backend makes the production profile not-ready. Explicit degraded development mode continues with the deterministic safety floor and marks every decision accordingly.
-
-### 7. Fallback contract
-
-Fallback is a new candidate selection under the same requirements, not an unconditional downgrade.
-
-- Retry only idempotent requests or requests explicitly marked retry-safe.
-- Honor `Retry-After` and bounded retry budgets.
-- For protected tasks, fallback candidates must satisfy the same hard floor.
-- For non-protected tasks, fallback may move to the next highest-scoring eligible model, never directly to an arbitrary cheap model.
-- Return an explicit `x-llm-gate-fallback` header and decision event.
-
-### 8. Explainability schema
-
-```json
-{
-  "request_id": "...",
-  "policy_version": "...",
-  "task_class": "implementation",
-  "protected": false,
-  "requirements": {"tools": true, "reasoning": "medium"},
-  "candidates": [
-    {"model": "...", "state": "ready", "score": 0.84, "rejected": false},
-    {"model": "...", "state": "unknown", "rejected": true, "reason": "unverified"}
-  ],
-  "selected": "...",
-  "learned_influence": {"enabled": true, "adjustment": 0.04},
-  "fallbacks": ["..."],
-  "latency_ms": 4.8
-}
-```
-
-### 9. Testable policy examples
-
-- A formatting request with tools required must not select a model lacking tool support, even if it is free.
-- An auth migration request must not select an unknown or unverified model.
-- A medium implementation request selects the highest-scoring ready model, not the lowest-cost model.
-- If all eligible models are unknown, the router follows explicit `unknown_availability` policy and explains the result.
-- A learned score cannot make a denied model eligible.
-- A failed first request cannot trigger a retry after the first SSE byte.
+*Policy aligned with `ADR-ORCHESTRATOR-ROUTING.md` and `ORCHESTRATOR_DRIVEN_ROUTING.md`. This document replaces the previous "no Ruflo coupling" absolute with "no selection logic in the request path; orchestrator owns selection."*

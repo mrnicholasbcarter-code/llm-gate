@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from llm_gate.benchmarking import (
+from verdict.benchmarking import (
     DEFAULT_FIXTURE_PATH,
     format_benchmark_report,
     run_reproducible_benchmarks,
@@ -12,7 +12,7 @@ from llm_gate.benchmarking import (
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run reproducible local llm-gate benchmarks")
+    parser = argparse.ArgumentParser(description="Run reproducible local verdict benchmarks")
     parser.add_argument(
         "--fixture",
         default=str(DEFAULT_FIXTURE_PATH),

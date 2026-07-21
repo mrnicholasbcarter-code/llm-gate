@@ -22,11 +22,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,server]"
+          pip install -e ".[dev,server,dashboard]"
       - name: Run tests
         run: pytest tests/ -v --tb=short
       - name: Check coverage
-        run: pytest tests/ --cov=llm_gate --cov-report=xml --cov-fail-under=70
+        run: pytest tests/ --cov=verdict --cov-report=xml --cov-fail-under=70
 
   lint:
     runs-on: ubuntu-latest
@@ -40,13 +40,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,server]"
+          pip install -e ".[dev,server,dashboard]"
       - name: Run Ruff
         run: ruff check .
       - name: Run Ruff Format (check)
-        run: ruff format .
+        run: ruff format --check .
       - name: Run MyPy
-        run: mypy llm_gate --strict
+        run: mypy verdict --strict
 
   security:
     runs-on: ubuntu-latest
@@ -63,7 +63,7 @@ jobs:
           python -m pip install bandit pip-audit
           python -m pip install -e ".[dev,server]"
       - name: Run Bandit Security Check
-        run: bandit -r llm_gate -ll
+        run: bandit -r verdict -ll
       - name: Run dependency audit
         run: python -m pip_audit --local --skip-editable --ignore-vuln PYSEC-2026-196 --ignore-vuln PYSEC-2026-1795 --ignore-vuln PYSEC-2026-1796 --ignore-vuln PYSEC-2026-2875 --ignore-vuln PYSEC-2026-2876 || true
 
@@ -79,9 +79,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,server]"
+          pip install -e ".[dev,server,dashboard]"
       - name: Run MyPy
-        run: mypy llm_gate --strict
+        run: mypy verdict --strict
 
   install-smoke:
     runs-on: ubuntu-latest
@@ -94,19 +94,19 @@ jobs:
           cache: pip
       - name: Minimal install smoke
         run: |
-          python -m venv /tmp/llm-gate-minimal
-          /tmp/llm-gate-minimal/bin/python -m pip install --upgrade pip
-          /tmp/llm-gate-minimal/bin/python -m pip install .
-          /tmp/llm-gate-minimal/bin/llm-gate --help
-          /tmp/llm-gate-minimal/bin/llm-gate route "format this README" --criticality low --terse
+          python -m venv /tmp/verdict-minimal
+          /tmp/verdict-minimal/bin/python -m pip install --upgrade pip
+          /tmp/verdict-minimal/bin/python -m pip install .
+          /tmp/verdict-minimal/bin/verdict --help
+          /tmp/verdict-minimal/bin/verdict route "format this README" --criticality low --terse
       - name: Complete install smoke
         run: |
-          python -m venv /tmp/llm-gate-complete
-          /tmp/llm-gate-complete/bin/python -m pip install --upgrade pip
-          /tmp/llm-gate-complete/bin/python -m pip install ".[all,server]"
-          /tmp/llm-gate-complete/bin/llm-gate detect --json
-          /tmp/llm-gate-complete/bin/python - <<'PY'
-          from llm_gate.api import app
+          python -m venv /tmp/verdict-complete
+          /tmp/verdict-complete/bin/python -m pip install --upgrade pip
+          /tmp/verdict-complete/bin/python -m pip install ".[dashboard,dev,server]"
+          /tmp/verdict-complete/bin/verdict detect --json
+          /tmp/verdict-complete/bin/python - <<'PY'
+          from verdict.api import app
 
           assert app is not None
           PY
@@ -131,11 +131,11 @@ jobs:
         run: python -m twine check dist/*
       - name: Wheel install smoke
         run: |
-          python -m venv /tmp/llm-gate-wheel
-          /tmp/llm-gate-wheel/bin/python -m pip install --upgrade pip
-          /tmp/llm-gate-wheel/bin/python -m pip install dist/*.whl
-          /tmp/llm-gate-wheel/bin/llm-gate --help
-          /tmp/llm-gate-wheel/bin/llm-gate detect --json
+          python -m venv /tmp/verdict-wheel
+          /tmp/verdict-wheel/bin/python -m pip install --upgrade pip
+          /tmp/verdict-wheel/bin/python -m pip install dist/*.whl
+          /tmp/verdict-wheel/bin/verdict --help
+          /tmp/verdict-wheel/bin/verdict detect --json
       - name: Upload distribution artifacts
         uses: actions/upload-artifact@v7
         with:

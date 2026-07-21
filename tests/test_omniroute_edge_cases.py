@@ -1,7 +1,7 @@
-from llm_gate.api import _build_proxy
-from llm_gate.discovery import fetch_models
-from llm_gate.headroom import check_headroom
-from llm_gate.models import ModelInfo, ProviderConfig
+from verdict.api import _build_proxy
+from verdict.discovery import fetch_models
+from verdict.headroom import check_headroom
+from verdict.models import ModelInfo, ProviderConfig
 
 
 def test_headroom_failures_are_bounded_and_fail_open() -> None:
@@ -18,10 +18,10 @@ def test_headroom_failures_are_bounded_and_fail_open() -> None:
 
 def test_stale_row_cached_discovery(monkeypatch) -> None:
     # Test our TTL cache correctly isolates stale rows or expires them
-    import llm_gate.discovery
+    import verdict.discovery
 
     monkeypatch.setattr(
-        llm_gate.discovery,
+        verdict.discovery,
         "_CACHE",
         {
             "omni": {

@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/llm-gate
+      url: https://pypi.org/p/verdict
     permissions:
       id-token: write  # IMPORTANT: mandatory for trusted publishing
       contents: read

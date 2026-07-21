@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from llm_gate.classifier import classify
-from llm_gate.headroom import check_headroom
-from llm_gate.models import ModelInfo, ProviderConfig
-from llm_gate.router import select_best_model
+from verdict.classifier import classify
+from verdict.headroom import check_headroom
+from verdict.models import ModelInfo, ProviderConfig
+from verdict.router import select_best_model
 
 
 def test_classifier_exact_override_wins() -> None:

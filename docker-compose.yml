@@ -1,9 +1,9 @@
 version: "3.8"
 
 services:
-  llm-gate:
+  verdict:
     build: .
-    container_name: llm-gate-server
+    container_name: verdict-server
     ports:
       - "8000:8000" # FastAPI Backend
       - "8501:8501" # Streamlit Web UI Dashboard

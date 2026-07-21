@@ -8,10 +8,10 @@ from typing import Any, ClassVar
 import httpx
 from fastapi.testclient import TestClient
 
-import llm_gate.api as api
-from llm_gate.intelligence import ReadinessReport
-from llm_gate.models import RoutingDecision
-from llm_gate.proxy import UpstreamProxy
+import verdict.api as api
+from verdict.intelligence import ReadinessReport
+from verdict.models import RoutingDecision
+from verdict.proxy import UpstreamProxy
 
 
 class ChunkedSSE(httpx.AsyncByteStream):
@@ -84,7 +84,7 @@ class FixedIntelligence:
     discovery_ttl = 60
     profile = "test"
 
-    def route(
+    async def route(
         self, task: str, criticality: str = "medium", context: dict[str, Any] | None = None
     ) -> RoutingDecision:
         assert task == "preserve all fields"
@@ -146,7 +146,7 @@ def test_proxy_preserves_unknown_request_fields_and_uses_server_auth(monkeypatch
 
     assert response.status_code == 200
     assert response.headers["x-upstream"] == "complete"
-    assert response.headers["x-llm-gate-model"] == "selected-model"
+    assert response.headers["x-verdict-model"] == "selected-model"
     forwarded = transport.requests[0]
     assert forwarded["headers"]["authorization"] == "Bearer server-secret"
     assert forwarded["body"] == {**payload, "model": "selected-model"}
@@ -204,7 +204,7 @@ def test_models_endpoint_forwards_upstream_catalog(monkeypatch) -> None:
     assert int(response.headers["content-length"]) == len(response.content)
     assert response.json()["data"][0]["id"] == "selected-model"
     assert len(response.json()["data"]) == 1
-    assert response.json()["data"][0]["llm_gate"] == {
+    assert response.json()["data"][0]["verdict"] == {
         "eligible": True,
         "availability_state": "unknown",
         "capability_profile": {

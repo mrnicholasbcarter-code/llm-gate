@@ -46,7 +46,7 @@ For a deliberately anonymous server, set `LLMGATE_ALLOW_ANONYMOUS=true` and bind
 only to loopback:
 
 ```bash
-LLMGATE_ALLOW_ANONYMOUS=true llm-gate serve --host 127.0.0.1 --port 8000
+LLMGATE_ALLOW_ANONYMOUS=true verdict serve --host 127.0.0.1 --port 8000
 ```
 
 Anonymous mode is rejected on non-loopback addresses and is not a production
@@ -73,7 +73,7 @@ credentials, full prompts, completions, and full task text are not written to
 decision logs. The default logger may still retain identifiers, model/provider
 names, policy fields, and safe error categories.
 
-Retention is an operator responsibility: `llm-gate` does not provide a hosted
+Retention is an operator responsibility: `verdict` does not provide a hosted
 retention service, automatic deletion schedule, encryption-at-rest guarantee, or
 compliance certification. Choose a restrictive `log_path`, filesystem access
 policy, rotation, backup, and deletion schedule appropriate to your data. Keep
@@ -85,14 +85,14 @@ Request bodies are bounded by `LLMGATE_MAX_REQUEST_BYTES`, and upstream calls
 have a timeout. Upstream providers may retain request data under their own
 terms; configure provider-side retention separately.
 
-For the published threat model, privacy posture, retention responsibilities, and
-supply-chain evidence snapshot, see
-[`docs/SECURITY_ASSURANCE.md`](docs/SECURITY_ASSURANCE.md).
+The historical threat-model, privacy, retention, and supply-chain snapshot is
+retained in [`docs/archive/SECURITY_ASSURANCE.md`](docs/archive/SECURITY_ASSURANCE.md).
+Do not treat that archived snapshot as a current production certification.
 
 Run the security checks with:
 
 ```bash
 .venv/bin/pytest -q tests/test_security.py
-.venv/bin/ruff check llm_gate tests
-.venv/bin/bandit -q -r llm_gate
+.venv/bin/ruff check verdict tests
+.venv/bin/bandit -q -r verdict
 ```

@@ -5,14 +5,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from llm_gate.availability import (
+from verdict.availability import (
     AvailabilityState,
     CandidateRequirements,
     normalize_observation,
     select_capable_candidates,
 )
-from llm_gate.models import ModelInfo
-from llm_gate.probes import (
+from verdict.models import ModelInfo
+from verdict.probes import (
     PROBE_PROMPT,
     ProbeObservation,
     ProbePolicy,
@@ -20,7 +20,7 @@ from llm_gate.probes import (
     openai_probe_transport,
 )
 
-MODEL = ModelInfo(id="runtime/model", provider="runtime", capability_tier=2)
+MODEL = ModelInfo(id="runtime/model", provider="runtime", model="model", capability_tier=2)
 
 
 def ok_transport(calls):
@@ -303,7 +303,7 @@ def test_runtime_observation_mapping_is_structured():
     calls = []
     result = ProbeRunner().run(["runtime/model"], ok_transport(calls))[0]
     observation = result.as_runtime_observation()
-    assert observation.source == "llm-gate:probe"
+    assert observation.source == "verdict:probe"
     assert observation.raw["usage_available"] is True
     assert observation.observed_at.tzinfo == timezone.utc
 
@@ -338,7 +338,7 @@ def test_probe_round_trip_preserves_truthful_availability_state(
     )
 
     state = normalize_observation(
-        ModelInfo(id="runtime/model", provider="runtime", capability_tier=2),
+        ModelInfo(id="runtime/model", provider="runtime", model="model", capability_tier=2),
         probe.as_runtime_observation(),
         now=observed_at,
     )

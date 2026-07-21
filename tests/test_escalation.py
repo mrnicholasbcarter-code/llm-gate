@@ -1,6 +1,6 @@
 """Unit tests for the keyword escalation scanner."""
 
-from llm_gate.escalation import scan
+from verdict.escalation import scan
 
 
 class TestEscalationScanner:

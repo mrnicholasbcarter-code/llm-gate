@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from llm_gate.availability import CandidateRequirements
-from llm_gate.contracts import TaskSpec, WorkflowPlan
-from llm_gate.planner import (
+from verdict.availability import CandidateRequirements
+from verdict.contracts import TaskSpec, WorkflowPlan
+from verdict.planner import (
     FailureClass,
     PlannerPolicy,
     PlanningUnavailable,

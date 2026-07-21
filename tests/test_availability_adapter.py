@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from llm_gate.availability import (
+from verdict.availability import (
     AvailabilityState,
     CallableOmniRouteTransport,
     CandidateRequirements,
@@ -16,11 +16,13 @@ from llm_gate.availability import (
     normalize_catalog,
     normalize_observation,
 )
-from llm_gate.models import ModelInfo
-from llm_gate.planner import StructuredPlanner
+from verdict.models import ModelInfo
+from verdict.planner import StructuredPlanner
 
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
-MODEL = ModelInfo(id="p/model", provider="p", capability_tier=1, capabilities=frozenset({"tools"}))
+MODEL = ModelInfo(
+    id="p/model", provider="p", model="model", capability_tier=1, capabilities=["tools"]
+)
 
 
 @pytest.mark.parametrize(
@@ -283,7 +285,7 @@ def test_probe_hint_cannot_override_authentication_failure() -> None:
         MODEL,
         RuntimeObservation(
             observed_at=NOW,
-            source="llm-gate:probe",
+            source="verdict:probe",
             health="degraded",
             auth="unauthorized",
             eligible=False,
@@ -629,7 +631,7 @@ def test_direct_observation_is_case_normalized_and_malformed_raw_is_isolated() -
         MODEL,
         RuntimeObservation(
             observed_at=NOW,
-            source="llm-gate:probe",
+            source="verdict:probe",
             health="degraded",
             raw=[],  # type: ignore[arg-type]
         ),
@@ -655,7 +657,7 @@ def test_direct_malformed_error_and_probe_metadata_fail_closed() -> None:
         MODEL,
         RuntimeObservation(
             observed_at=NOW,
-            source="llm-gate:probe",
+            source="verdict:probe",
             health="healthy",
             eligible=True,
             raw={
@@ -675,7 +677,7 @@ def test_unhashable_probe_metadata_is_failure_isolated() -> None:
         MODEL,
         RuntimeObservation(
             observed_at=NOW,
-            source="llm-gate:probe",
+            source="verdict:probe",
             health="healthy",
             eligible=True,
             raw={
@@ -723,7 +725,7 @@ def test_contradictory_ready_probe_metadata_is_malformed(raw) -> None:
         MODEL,
         RuntimeObservation(
             observed_at=NOW,
-            source="llm-gate:probe",
+            source="verdict:probe",
             health="healthy",
             auth="authorized",
             eligible=True,
@@ -769,7 +771,7 @@ def test_contradictory_degraded_probe_metadata_is_malformed(raw) -> None:
         MODEL,
         RuntimeObservation(
             observed_at=NOW,
-            source="llm-gate:probe",
+            source="verdict:probe",
             health="degraded",
             raw=raw,
         ),
@@ -784,7 +786,7 @@ def test_contradictory_degraded_probe_metadata_is_malformed(raw) -> None:
                 {
                     "p/model": {
                         "observed_at": NOW.isoformat(),
-                        "source": "llm-gate:probe",
+                        "source": "verdict:probe",
                         "health": "degraded",
                         **raw,
                     }
@@ -802,7 +804,7 @@ def test_probe_error_detail_never_leaks_through_explanations() -> None:
         MODEL,
         RuntimeObservation(
             observed_at=NOW,
-            source="llm-gate:probe",
+            source="verdict:probe",
             health="unhealthy",
             raw={
                 "probe_status": "failed",
@@ -833,7 +835,7 @@ def test_probe_error_detail_never_leaks_through_explanations() -> None:
         ),
         RuntimeObservation(
             observed_at=NOW,
-            source="llm-gate:probe",
+            source="verdict:probe",
             health="unhealthy",
             raw={
                 "probe_status": "failed",
@@ -881,7 +883,7 @@ def test_untrusted_runtime_error_fields_never_leak(observation) -> None:
         (
             RuntimeObservation(
                 observed_at=NOW,
-                source="llm-gate:probe",
+                source="verdict:probe",
                 health="unhealthy",
                 cost=2,
                 budget_remaining=1,

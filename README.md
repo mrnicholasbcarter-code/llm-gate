@@ -1,283 +1,286 @@
-# llm-gate
+# Verdict — Policy-Gated LLM Routing Control Plane
 
-<p align="center"><b>Alpha policy and availability primitives for explainable LLM routing.</b></p>
+[![PyPI](https://img.shields.io/pypi/v/verdict-core.svg)](https://pypi.org/project/verdict-core/)
+[![Python](https://img.shields.io/pypi/pyversions/verdict-core.svg)](https://pypi.org/project/verdict-core/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Tests](https://github.com/verdict/verdict-core/workflows/CI/badge.svg)](https://github.com/verdict/verdict-core/actions)
 
-[![CI](https://img.shields.io/github/actions/workflow/status/mrnicholasbcarter-code/llm-gate/ci.yml?style=flat-square&label=CI)](https://github.com/mrnicholasbcarter-code/llm-gate/actions)
-[![PyPI](https://img.shields.io/pypi/v/llm-gate?style=flat-square)](https://pypi.org/project/llm-gate/)
+> **The gate rules on each task** — deterministic safety verdicts, availability-aware routing, quantitative-trading-grade execution, closed-loop telemetry.
 
-`llm-gate` is an alpha Python library and local OpenAI-compatible proxy. It
-normalizes a task into a versioned `TaskSpec`, applies deterministic policy,
-capability, privacy, budget, and availability gates, and explains the eligible
-candidate set. Adaptive intelligence is advisory: it may rank eligible
-candidates, but it cannot bypass a hard gate.
+---
 
-> **Status:** The deterministic contracts and availability adapter are usable
-> now. End-to-end workflow orchestration, live OmniRoute health/quota
-> integration, legal retry/fallback, and managed intelligence remain unfinished
-> release gates. The proxy is alpha. This repository does not claim production
-> readiness, provider uptime, or a particular routing latency.
+## What is Verdict?
 
-## OmniRoute availability adapter boundary
+Verdict is a **policy-gated, availability-aware LLM routing control plane** — not a simple proxy. It provides:
 
-`OmniRouteAvailabilityAdapter` defines local JSON-like protocol aliases. These
-names are `llm-gate` adapter operations, not a claim that OmniRoute exposes
-same-named functions:
+- **Deterministic safety floors**: Hard gate checks (capability, budget, privacy, availability) run locally before any upstream call
+- **Availability-aware routing**: Bounded cache with stale-while-revalidate, explicit `unknown`/`error` states, concurrent refresh deduplication
+- **Explainability first**: `GET /v1/route/explain` surfaces observed_at, expires_at, age, source, confidence, candidate/eligible counts, per-candidate exclusion reasons, cache refresh/error state
+- **Quantitative-trading-grade execution**: Monte Carlo backtest harness, capacity admission with deterministic effort reservations, conservative runtime headroom
+- **Closed-loop telemetry**: SONA feedback loop feeds outcomes (latency, success, cost) back to RuVector for continuous MoE ranking improvement
 
-- catalog input: `catalog()` or `list_models()`;
-- optional pre-fetched runtime input: `runtime()` or `get_runtime()`;
-- optional pre-fetched capability input: `discover_capabilities()`.
+---
 
-A concrete integration may map OmniRoute's documented OpenAI-compatible
-`GET /v1/models` response to the catalog input. This repository has not yet
-identified a documented OmniRoute source for complete live health, quota,
-price, or capability evidence. Those signals therefore remain `unknown` unless
-an integration supplies explicit, versioned evidence from a documented
-API/CLI/MCP/A2A surface. See the
-[memory source index](docs/operations/MEMORY_SOURCE_INDEX.md) for the pinned
-documentation observations and trust labels.
-
-Use `StaticOmniRouteTransport` for fixtures, `CallableOmniRouteTransport` to
-adapt explicit callables, or `MappingOmniRouteTransport` to adapt a mapping of
-pre-fetched operation payloads. Capability discovery is allowlisted: only the
-local operation aliases above are honored, and unknown advertised operations
-are ignored rather than trusted.
-
-Transport failures are surfaced as typed adapter errors
-(`OmniRouteTransportUnsupported`, `OmniRouteTransportTimeout`,
-`OmniRouteTransportMalformed`) and converted into failure-isolated availability
-reports instead of leaking transport-specific behavior into routing policy.
-
-## Five-minute clean-environment quickstart
-
-The fastest clean-room proof is the deterministic flagship demo. It requires no
-credentials, makes no network calls, and produces stable JSON output.
-
-From a fresh checkout:
+## Quick Start
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-python scripts/flagship_demo.py
-python -m pytest -q tests/test_flagship_demo.py
+# Install
+pipx install verdict-core
+
+# Or with server extras
+pipx install 'verdict-core[server]'
+
+# Configure
+verdict setup
+
+# Route a task
+verdict route "Refactor this Python module to use type hints" --terse
 ```
 
-For a packaging-style smoke check in an isolated environment, build a wheel and
-install that artifact instead of using an editable checkout:
-
-```bash
-python -m pip install build
-python -m build
-python -m venv /tmp/llm-gate-smoke
-source /tmp/llm-gate-smoke/bin/activate
-pip install dist/llm_gate-*.whl
-python -m llm_gate.cli --help
-python /path/to/llm-gate/scripts/flagship_demo.py
-```
-
-See [the reproducible demo guide](docs/DEMO.md) for the clean-environment
-verification flow, expected behavior, and current limitations.
-
-## See the decision, without credentials
-
-The flagship walkthrough is deterministic and makes no network calls:
-
-```bash
-python scripts/flagship_demo.py
-```
-
-It constructs a `TaskSpec`, evaluates four in-memory runtime observations,
-selects one eligible candidate, and reports why the other three were excluded
-(missing capability, exhausted quota, and unknown health). The output is stable
-across runs.
-
-## Install and use the library
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-```
-
-Compatibility routing remains available through `Gate`; it defaults to the
-explicit development/degraded profile:
-
-```python
-from llm_gate import Gate
-
-gate = Gate()
-decision = gate.route("Rewrite the auth module", criticality="high")
-print(decision.model)
-print(decision.reason)
-```
-
-The `criticality` argument is a compatibility input, not the routing algorithm.
-New integrations should use `TaskSpec` and `RoutingDecisionContract` (see
-[contract migration](docs/contracts-migration.md)).
-
-## Local proxy (alpha)
-
-The proxy forwards to a configured upstream and is not a bundled model server.
-Use a caller token or Unix socket for non-anonymous operation; keep anonymous
-mode on loopback for development only:
-
-```bash
-export LLMGATE_AUTH_TOKEN='use-a-long-random-token'
-export LLMGATE_HOST=127.0.0.1
-export LLMGATE_UPSTREAM_BASE_URL=https://api.openai.com/v1
-export OPENAI_API_KEY='set-this-in-your-shell-not-in-a-request'
-llm-gate serve --host 127.0.0.1 --port 8000
-```
-
-```bash
-LLMGATE_ALLOW_ANONYMOUS=true llm-gate serve --host 127.0.0.1 --port 8000
-```
-
-Anonymous mode is rejected on non-loopback addresses. The proxy owns upstream
-configuration and credentials; client-supplied upstream URLs and credentials
-are not accepted. Review [SECURITY.md](SECURITY.md) and the
-[release acceptance matrix](docs/specs/RELEASE_ACCEPTANCE.md) before connecting
-real provider credentials.
-
-## What is implemented
-
-- Versioned, strict contracts: `TaskSpec`, runtime candidates, availability
-  snapshots, workflow plans, and explainable routing decisions.
-- Protocol-based catalog/runtime adapter with deterministic normalization of
-  healthy, degraded, unknown, denied, stale, quota, auth, and timeout states.
-- Hard-gate candidate filtering for capabilities, provider/model policy, budget,
-  concurrency, freshness, and protected work.
-- Explain-only endpoint (`POST /v1/route`), model listing, health/readiness,
-  request-size limits, redacted decision events, and transparent proxy fields.
-- A deterministic local safety floor and an explicit production readiness check
-  for the managed intelligence profile.
-
-## What is not claimed yet
-
-- No guarantee that a provider is available, affordable, fast, or high quality.
-- No claim that the alpha proxy is a drop-in production gateway.
-- No benchmark result is a service-level objective; benchmark methodology and
-  result recording are documented in [BENCHMARKS.md](docs/BENCHMARKS.md).
-- No automatic policy mutation from suggestions or learned signals.
-
-## Routing model
-
-```text
-Request → TaskSpec → hard gates → eligible candidates → optional ranking
-                                      │
-                         explain exclusions and selection
-```
-
-Hard gates run before ranking. A catalog row is not proof of live eligibility;
-runtime evidence is normalized with an explicit freshness window. Decisions are
-intended to be deterministic for identical inputs, policy version, catalog
-state, and learned-policy snapshot.
-
-## CLI and integrations
-
-| Command | Purpose |
-|---|---|
-| `llm-gate route <task>` | Compatibility route with explanation |
-| `llm-gate serve` | Alpha OpenAI-compatible proxy |
-| `llm-gate detect` | Inspect locally discoverable providers |
-| `llm-gate stats` | Read local decision-log analytics |
-| `llm-gate suggest` | Show read-only evidence-backed suggestions |
-
-The proxy can be paired with OpenAI-compatible clients. See
-[`docs/integrations/`](docs/integrations/) for client-specific notes; each
-integration page should be read as compatibility guidance, not a production
-certification.
-
-## Development and verification
-
-```bash
-.venv/bin/python scripts/flagship_demo.py
-.venv/bin/pytest -q
-.venv/bin/ruff check .
-.venv/bin/ruff format --check .
-.venv/bin/mypy llm_gate --strict
-```
-
-The CI workflow also runs package, security, and install smoke checks. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance. Maintainers
-continuing the cross-repository release effort should use the
-[portfolio continuation runbook](docs/operations/PORTFOLIO_CONTINUATION_RUNBOOK.md),
-[ecosystem product vision](docs/operations/ECOSYSTEM_PRODUCT_VISION.md), and
-[memory source index](docs/operations/MEMORY_SOURCE_INDEX.md).
-
-## Security, privacy, retention, and supply-chain posture
-
-Review [SECURITY.md](SECURITY.md) for vulnerability reporting, proxy security
-controls, upstream URL restrictions, and data-handling defaults. Review
-[docs/SECURITY_ASSURANCE.md](docs/SECURITY_ASSURANCE.md) for the published
-threat model, privacy posture, retention responsibilities, and current
-supply-chain evidence.
+---
 
 ## Architecture
 
-- `llm_gate/contracts.py` — strict versioned JSON-compatible contracts
-- `llm_gate/availability.py` — runtime normalization and eligibility gates
-- `llm_gate/intelligence.py` — deterministic floor and managed-adapter boundary
-- `llm_gate/api.py` / `llm_gate/proxy.py` — alpha HTTP and upstream transport
-- `scripts/flagship_demo.py` — credential-free public evidence fixture
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        VERDICT CORE                              │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
+│  │   Gate      │  │ Eligibility │  │ Intelligence│              │
+│  │  (Policy)   │──▶│  (Filter)   │──▶│  (Ranking)  │              │
+│  └─────────────┘  └─────────────┘  └─────────────┘              │
+│         │               │               │                        │
+│         ▼               ▼               ▼                        │
+│  ┌─────────────────────────────────────────────────┐             │
+│  │          Availability Cache (SWR)                │             │
+│  │  TTL + stale-window, explicit unknown/error,     │             │
+│  │  isolation by provider/model/policy-version      │             │
+│  └─────────────────────────────────────────────────┘             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Core Components
+
+| Module | Purpose |
+|--------|---------|
+| `verdict.gate` | Deterministic policy enforcement — capability, budget, privacy, capacity |
+| `verdict.eligibility` | Availability-aware filtering with explicit unknown handling |
+| `verdict.intelligence` | Advisory ranking (cannot bypass hard gate) |
+| `verdict.availability_cache` | Bounded SWR cache, `explain_freshness()` for `/v1/route/explain` |
+| `verdict.omniroute` | Native OmniRoute transport (250+ providers, 90+ free tiers) |
+| `verdict.contracts` | Versioned Pydantic contracts for all public APIs |
+
+---
+
+## CLI Reference
+
+```bash
+verdict [global flags] <command> [args]
+
+Commands:
+  route       Route task to best model
+  explain     Show eligibility ranking & freshness
+  models      List/refresh available models
+  policy      Manage routing policies (get/set/validate)
+  dashboard   Launch/manage verdict-ui
+  config      Manage local configuration
+  completion  Generate shell completions
+  serve       Launch FastAPI microservice
+  detect      Detect available LLM providers
+  probe       Run 1-token liveness probe
+  suggest     Review intelligence suggestions
+  doctor      Scan & repair config/connectivity
+  check       Validate config syntax
+```
+
+### Route Examples
+
+```bash
+# Terse output (model name only)
+verdict route "Write a Rust CLI tool" --terse
+# → anthropic/claude-3-opus-20240229
+
+# Verbose with reasoning
+verdict route "Refactor this TypeScript component"
+# → model: openai/gpt-4o
+#    reason: capability=tools, budget=medium, latency=p50<2s
+#    freshness: 12.3s old (omniroute:http)
+
+# Production critical path
+verdict route "Deploy to production" --criticality high --context '{"repo":"acme/api"}'
+```
+
+---
+
+## Server Mode
+
+```bash
+# Start OpenAI-compatible proxy
+verdict serve --host 0.0.0.0 --port 8000
+
+# With availability cache (requires OmniRoute)
+export OMNIROUTE_BASE_URL=http://localhost:20128
+verdict serve
+```
+
+### Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /v1/chat/completions` | OpenAI-compatible chat completion |
+| `POST /v1/route` | Route task, return selected model + reasoning |
+| `GET /v1/route/explain` | Freshness + eligibility explain (issue #56/#73) |
+| `GET /v1/models` | List available models with capability tags |
+
+---
+
+## Configuration
+
+Verdict uses layered config:
+
+```toml
+# ~/.verdict/config.toml (global)
+# .verdict/config.toml (project-local — takes precedence)
+
+[gateway]
+primary_model = "anthropic/claude-3-opus-20240229"
+providers = {}
+
+[intelligence]
+profile = "balanced"  # fast | balanced | thorough
+timeout_ms = 8000
+allow_client_model_override = false
+
+[availability]
+ttl_seconds = 60
+stale_window_seconds = 30
+omniroute_base_url = "http://localhost:20128"  # Optional
+```
+
+---
+
+## OmniRoute Integration
+
+Verdict integrates natively with **OmniRoute** (`http://localhost:20128/v1`) as
+its provider boundary for:
+- **3,318+ models** across **250+ providers**
+- **107+ free tiers** — no API keys needed
+- Auto-fallback, RTK compression (15–95% token savings)
+- `auto/best-coding`, `auto/best-reasoning`, `auto/best-fast` smart routing
+
+```bash
+# Start OmniRoute (Docker)
+docker run -d -p 20128:20128 omnibus/omniroute
+
+# Configure Verdict
+export OMNIROUTE_BASE_URL=http://localhost:20128
+verdict serve
+```
+
+### Runtime discovery and MCP
+
+Verdict uses OmniRoute's OpenAI-compatible catalog for model identity, while
+availability decisions remain separate: catalog presence does not mean a
+provider is healthy, reachable, within quota, or eligible. When the deployment
+exposes authenticated management APIs, the availability adapter can discover
+documented runtime signals such as provider catalogs, MCP status/tools, and
+quota summaries. Optional endpoints include:
+
+```text
+GET /v1/models
+GET /api/models/catalog
+GET /api/mcp/status
+GET /api/mcp/tools
+GET /api/free-tier/summary
+GET /api/quota/pools/{pool_id}/usage
+```
+
+Management and MCP access normally require the OmniRoute bearer token. A
+missing token, `401`, timeout, malformed response, or unavailable optional
+endpoint is recorded as unknown/stale—not as healthy. Protected work therefore
+fails closed when fresh runtime truth is absent. Verdict never reads
+OmniRoute's private database and never copies provider credentials into model
+selection. See [the worker/discovery guide](docs/guides/omniroute-workers.md)
+and [the routing policy](docs/specs/ROUTING_POLICY.md) for the full contract.
+
+## Autonomous development workflow
+
+The repository's development contract is documented in
+[Autonomous development](docs/guides/autonomous-development.md). It requires
+documentation lookup and sanitized RAG ingestion before design, Code Review
+Graph context and impact analysis before implementation/review, ticket-backed
+work packages, OmniRoute-aware worker selection, layered verification, and
+exact-head CI/PR follow-through through merge.
+
+---
+
+## Project Structure
+
+```
+verdict-core/
+├── verdict/                 # Main package
+│   ├── api.py              # FastAPI server + /v1/route/explain
+│   ├── availability.py     # Capability/quota/health checks
+│   ├── availability_cache.py  # Bounded SWR cache (issue #56)
+│   ├── contracts.py        # Versioned Pydantic contracts
+│   ├── dispatcher.py       # Routing logic
+│   ├── eligibility.py      # Gate + filter pipeline
+│   ├── gate.py             # Policy enforcement
+│   ├── intelligence.py     # Advisory ranking
+│   ├── omniroute.py        # OmniRoute transport
+│   ├── planner.py          # Task decomposition
+│   ├── cli.py              # Cobra-style CLI
+│   └── ...
+├── tests/                   # 320 tests passing
+├── scripts/                 # flagship_demo.py, verify_release_artifacts.py
+├── benchmarks/              # Reproducible benchmarks
+└── docs/                    # Architecture, guides, API reference
+```
+
+---
+
+## Ecosystem
+
+| Repo | Purpose | Status |
+|------|---------|--------|
+| `verdict-core` | Python control plane (flagship) | ✅ 320 tests |
+| `verdict-node` | Express/Next.js middleware | ✅ 139 tests |
+| `verdict-cockpit` | Next.js dashboard | 🚧 |
+| `verdict-risk` | Risk engine | 🚧 |
+| `verdict-edge` | Edge mining framework | 🚧 |
+| `verdict-backtest` | Monte Carlo harness | 🚧 |
+| `verdict` | Umbrella/meta repo | 🚧 |
+
+---
+
+## Development
+
+```bash
+# Install dev deps
+pipx install verdict-core --editable
+
+# Run tests
+pytest -v
+
+# Lint + typecheck
+uv run --extra dev --extra dashboard --extra server ruff check .
+uv run --extra dev --extra dashboard --extra server mypy verdict --strict
+
+# Run flagship demo
+python scripts/flagship_demo.py
+```
+
+---
 
 ## License
 
-[MIT](LICENSE)
+MIT — see [LICENSE](LICENSE)
 
-## Dynamic availability probes
+---
 
-`llm-gate` discovers opaque model IDs from the configured OpenAI-compatible
-`/v1/models` catalog. Discovery alone leaves candidates in `unknown` state.
-For a bounded usage/availability check, supply the discovered IDs to
-`ProbeRunner` and inject an OpenAI-compatible transport:
+## Links
 
-```python
-from llm_gate import ProbePolicy, ProbeRunner, openai_probe_transport
-
-transport = openai_probe_transport("http://127.0.0.1:20128/v1")
-observations = ProbeRunner(ProbePolicy(max_models_per_run=8)).run(
-    discovered_model_ids,
-    transport,
-)
-```
-
-Each probe sends only a fixed `Return exactly: OK` prompt with `max_tokens=1`,
-no tools, no user/project data, and a bounded timeout. Results record only
-status, latency, usage counters, redacted error class/message, cooldown, and
-quarantine state. A successful HTTP response is `ready` only when it includes
-both positive token usage and non-empty assistant output; an empty or
-usage-free response remains `degraded`. The runner enforces per-run
-count/concurrency bounds, exponential cooldown, and quarantine after repeated
-failures. Use the resulting `ProbeObservation.as_runtime_observation()` with
-the availability adapter; do not treat vector/RAG memory as live health
-authority.
-
-Candidate selection fails closed by default: only `ready` observations are
-selectable. Non-protected callers may explicitly set
-`CandidateRequirements(allow_degraded=True)` to admit fresh `degraded`
-observations; protected work still rejects them. The separate
-`unknown_is_eligible` opt-in admits only fresh, internally consistent
-`unknown` evidence—never missing, stale, malformed, or contradictory data.
-
-For OmniRoute, `OmniRouteHTTPTransport` implements credential-separated,
-bounded `GET` access to the documented `/v1/models`,
-`/api/monitoring/health`, rate-limit, model-cooldown, budget, and token-limit
-operations. Health is the only default runtime source; management and
-usage-scoped reads are explicit opt-ins. The transport disables redirects,
-requires an exact destination allowlist, rejects encoded responses, minimizes
-runtime records, and maps timeout, unauthorized, unavailable, and malformed
-results to typed failures. See the [OmniRoute transport
-guide](docs/integrations/omniroute-9router.md) for the exact operations and
-configuration.
-
-The planner library emits conservative token and cost reservations. Integrations
-compose this alpha contract explicitly by passing
-`StructuredPlanner.availability_requirements(task_spec)` to the availability
-adapter before scoring; the current `IntelligenceService` does not yet
-orchestrate that transport path. A candidate must have enough normalized token
-and budget headroom. Missing headroom is degraded and fail-closed by default;
-known insufficient headroom is denied. Protected work cannot opt into degraded
-capacity evidence. See the
-[routing policy](docs/specs/ROUTING_POLICY.md#41-conservative-capacity-reservations)
-for the versioned reservation basis and exact semantics.
+- **Documentation**: https://verdict.dev/docs
+- **Issues**: https://github.com/verdict/verdict-core/issues
+- **Discord**: https://discord.gg/verdict
+- **OmniRoute**: https://github.com/verdict/omniroute

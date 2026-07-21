@@ -13,8 +13,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from llm_gate.availability import AvailabilityReport
-from llm_gate.availability_cache import (
+from verdict.availability import AvailabilityReport
+from verdict.availability_cache import (
     AvailabilityCache,
     CacheKey,
     build_cache_report,
