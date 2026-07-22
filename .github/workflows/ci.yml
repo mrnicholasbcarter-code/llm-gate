@@ -7,6 +7,21 @@ on:
     branches: [main, master, develop]
 
 jobs:
+  typescript-contract-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Build TypeScript contracts
+        run: npm run build
+      - name: Run TypeScript contract fixtures
+        run: npm test
+
   test:
     runs-on: ubuntu-latest
     strategy:
