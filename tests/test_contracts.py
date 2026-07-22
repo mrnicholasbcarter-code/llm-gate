@@ -341,3 +341,94 @@ def test_invalid_fixtures_fail_python_and_json_schema(fixture_name: str) -> None
     assert errors, fixture_name
     with pytest.raises(ContractValidationError):
         TaskSpec.from_dict(payload)
+
+
+def _get_dummy_payload():
+    from verdict.contracts import OutcomeEvent, TaskSpec, TaskWorkflowOutcomeEpisode, WorkflowPlan
+
+    spec = TaskSpec(objective="test", task_type="coding")
+    plan = WorkflowPlan(steps=[{"action": "research", "objective": "test"}])
+    event = OutcomeEvent(event_type="test", outcome="test", occurred_at="2024-01-01T00:00:00Z")
+    ep = TaskWorkflowOutcomeEpisode.from_contracts(
+        task_spec=spec, workflow_plan=plan, outcome_event=event
+    )
+    return {
+        "task": ep.task.to_dict(),
+        "workflow": ep.workflow.to_dict(),
+        "outcome": ep.outcome.to_dict(),
+    }
+
+
+def test_episode_embedding_mode_rejection():
+    from verdict.contracts import ContractValidationError, TaskWorkflowOutcomeEpisode
+
+    payload = _get_dummy_payload()
+    payload["embedding_mode"] = "testing_only_hash"
+    payload["testing_only"] = False
+
+    import pytest
+
+    with pytest.raises(ContractValidationError, match="requires testing_only=True"):
+        TaskWorkflowOutcomeEpisode.from_dict(payload)
+
+    payload["testing_only"] = True
+    ep = TaskWorkflowOutcomeEpisode.from_dict(payload)
+    assert ep.embedding_mode == "testing_only_hash"
+    assert ep.testing_only is True
+
+
+def test_episode_secrets_redaction():
+    from verdict.contracts import OutcomeEvent, TaskSpec, TaskWorkflowOutcomeEpisode, WorkflowPlan
+
+    spec = TaskSpec(
+        objective="Do stuff", task_type="coding", metadata={"api_key": "secret123", "normal": "val"}
+    )
+    plan = WorkflowPlan(
+        steps=[{"action": "research", "objective": "test"}],
+        metadata={"api_key": "secret456", "prompt": "pretend prompt"},
+    )
+    event = OutcomeEvent(
+        event_type="finished",
+        outcome="success",
+        occurred_at="2024-01-01T00:00:00Z",
+        details={
+            "api_key": "secret789",
+            "nested": {"password": "pwd", "completion": "pretend completion"},
+        },
+    )
+
+    ep = TaskWorkflowOutcomeEpisode.from_contracts(
+        task_spec=spec, workflow_plan=plan, outcome_event=event
+    )
+
+    assert ep.task.metadata["api_key"] == "[redacted]"
+    assert ep.task.metadata["normal"] == "val"
+    assert ep.workflow.metadata["api_key"] == "[redacted]"
+    assert ep.workflow.metadata["prompt"] == "[redacted]"
+    assert ep.outcome.details["api_key"] == "[redacted]"
+    assert ep.outcome.details["nested"]["password"] == "[redacted]"
+    assert ep.outcome.details["nested"]["completion"] == "[redacted]"
+
+
+def test_episode_temporal_and_namespaces():
+    from verdict.contracts import TaskWorkflowOutcomeEpisode
+
+    payload = _get_dummy_payload()
+    payload.update(
+        {
+            "namespace": {"tenant": "test_tenant", "project": "proj-1"},
+            "provenance": {"source": "test_script"},
+            "supersedes": "episode-001",
+            "valid_from": "2024-01-01T00:00:00Z",
+            "valid_until": "2025-01-01T00:00:00Z",
+            "retention": {"policy": "standard", "deletable": True},
+        }
+    )
+
+    ep = TaskWorkflowOutcomeEpisode.from_dict(payload)
+
+    assert ep.namespace["tenant"] == "test_tenant"
+    assert ep.provenance["source"] == "test_script"
+    assert ep.supersedes == "episode-001"
+    assert ep.valid_from == "2024-01-01T00:00:00Z"
+    assert ep.retention["deletable"] is True
