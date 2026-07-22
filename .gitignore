@@ -14,6 +14,8 @@ build/
 *.egg
 .eggs/
 .venv/
+node_modules/
+dist-node/
 venv/
 env/
 .env
