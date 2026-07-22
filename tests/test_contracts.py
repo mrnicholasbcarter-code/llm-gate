@@ -279,3 +279,65 @@ def test_invalid_schema_version_fixture_is_rejected_by_schema_and_python_contrac
 
     with pytest.raises(ContractValidationError, match=r"schema_version must be '1', got '2'"):
         TaskSpec.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    ("name", "payload"),
+    [
+        ("missing objective", {"task_type": "coding"}),
+        ("empty objective", {"objective": "  ", "task_type": "coding"}),
+        (
+            "invalid capability type",
+            {"objective": "ship", "task_type": "coding", "capabilities": [True]},
+        ),
+        ("invalid budget", {"objective": "ship", "task_type": "coding", "budget": {"max_usd": -1}}),
+        ("unknown privacy", {"objective": "ship", "task_type": "coding", "privacy": "unsafe"}),
+        (
+            "unsafe workflow",
+            {
+                "objective": "ship",
+                "task_type": "coding",
+                "workflow": {"steps": [{"action": "shell"}]},
+            },
+        ),
+    ],
+)
+def test_python_contract_rejects_invalid_v1_values(name: str, payload: dict[str, object]) -> None:
+    del name
+    with pytest.raises(ContractValidationError):
+        TaskSpec.from_dict(payload)
+
+
+def test_schema_rejects_invalid_v1_values() -> None:
+    validator = Draft202012Validator(SCHEMA)
+    invalid = {
+        "task_spec": {
+            "objective": "ship",
+            "task_type": "coding",
+            "privacy": "unsafe",
+            "budget": {"max_usd": -1},
+        }
+    }
+    assert list(validator.iter_errors(invalid))
+
+
+def test_outcome_event_requires_identity_and_outcome() -> None:
+    with pytest.raises(ContractValidationError):
+        OutcomeEvent.from_dict({})
+
+
+@pytest.mark.parametrize(
+    "fixture_name",
+    [
+        "invalid-missing-objective.json",
+        "invalid-capability-type.json",
+        "invalid-budget.json",
+        "invalid-unsafe-workflow.json",
+    ],
+)
+def test_invalid_fixtures_fail_python_and_json_schema(fixture_name: str) -> None:
+    payload = json.loads((FIXTURE_DIR / fixture_name).read_text())
+    errors = list(Draft202012Validator(SCHEMA).iter_errors({"task_spec": payload}))
+    assert errors, fixture_name
+    with pytest.raises(ContractValidationError):
+        TaskSpec.from_dict(payload)

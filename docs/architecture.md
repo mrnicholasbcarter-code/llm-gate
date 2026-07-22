@@ -180,7 +180,30 @@ Returns per-model freshness + eligibility reasoning:
 
 ## Contracts (`verdict/contracts.py`)
 
-Versioned Pydantic contracts for all public APIs:
+Versioned, strict dataclass contracts for all public APIs. The canonical
+machine-readable definition is [schemas/contracts.v1.json](../schemas/contracts.v1.json)
+and the checked-in fixture is validated by:
+
+```bash
+uv run python scripts/validate_contract_schema.py
+```
+
+The v1 boundary rejects missing or blank objectives, wrong JSON types, secret
+bearing fields, unknown fields, negative/non-finite budget and latency values,
+unknown safety enums, and workflow steps whose actions are not in the safe v1
+action vocabulary. `metadata`, `context`, and signal payloads remain open JSON
+objects for forward-compatible integration data; that openness does not relax
+validation of the safety fields around them. `schema_version` defaults to
+`"1"` for Python callers that omit it, but any declared version other than
+`"1"` is rejected. Legacy payloads must enter through
+`contract_from_legacy_dict`, which performs an explicit compatibility mapping.
+
+The Python loader and JSON Schema are tested together with canonical valid and
+invalid fixtures. The TypeScript declarations in `contracts/index.ts` are a
+consumer-facing compatibility surface; full TypeScript runtime parity is
+tracked separately and must not be treated as a policy bypass.
+
+Contracts include:
 
 | Contract | Purpose |
 |----------|---------|

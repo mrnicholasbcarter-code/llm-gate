@@ -25,6 +25,8 @@ jobs:
           pip install -e ".[dev,server,dashboard]"
       - name: Run tests
         run: pytest tests/ -v --tb=short
+      - name: Validate versioned contract schema
+        run: python scripts/validate_contract_schema.py
       - name: Check coverage
         run: pytest tests/ --cov=verdict --cov-report=xml --cov-fail-under=70
 

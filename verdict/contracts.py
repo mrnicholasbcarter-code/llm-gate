@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import MISSING, Field, dataclass, field, fields
 from types import UnionType
 from typing import Any, ClassVar, TypeVar, cast, get_args, get_origin, get_type_hints
@@ -15,6 +16,87 @@ class ContractValidationError(ValueError):
 
 
 _SECRET_NAMES = {"api_key", "apikey", "authorization", "password", "secret", "token"}
+
+# These are the safety-sensitive values that v1 intentionally freezes.  Task
+# types, planner modes, provider identifiers, and metadata remain open strings
+# so adding a new workflow integration does not require a contract version bump.
+_TASK_EFFORTS = frozenset({"unknown", "low", "medium", "high"})
+_TASK_REASONING_LEVELS = frozenset({"unknown", "low", "medium", "high"})
+_TASK_PRIVACY_LEVELS = frozenset(
+    {"unknown", "public", "internal", "trusted_upstream", "restricted"}
+)
+_TASK_RISK_LEVELS = frozenset({"unknown", "low", "medium", "high", "critical"})
+_TASK_PARALLELISM = frozenset({"serial", "parallel", "bounded"})
+_DEGRADED_MODE_POLICIES = frozenset({"deny", "allow", "allow_with_penalty"})
+_POLICY_FLOORS = frozenset(
+    {"none", "isolated", "protected", "standard", "best_effort", "medium", "high"}
+)
+_AVAILABILITY_STATES = frozenset(
+    {
+        "eligible",
+        "ready",
+        "healthy",
+        "outage",
+        "degraded",
+        "unknown",
+        "unavailable",
+        "denied",
+        "quota_exhausted",
+        "rate_limited",
+        "unauthorized",
+        "locked_out",
+        "circuit_open",
+        "timeout",
+        "malformed",
+        "capability_mismatch",
+        "policy_denied",
+    }
+)
+_WORKFLOW_ACTIONS = frozenset(
+    {
+        "answer",
+        "research",
+        "implement",
+        "review",
+        "verify",
+        "synthesis",
+        "specialist",
+        "human_approval",
+        "execute",
+    }
+)
+_OUTCOME_VALUES = frozenset(
+    {
+        "success",
+        "failure",
+        "partial",
+        "denied",
+        "unknown",
+        "cancelled",
+        "timeout",
+        "error",
+        "skipped",
+    }
+)
+_REQUIRED_FIELDS: dict[str, frozenset[str]] = {
+    "TaskSpec": frozenset({"objective", "task_type"}),
+    "WorkflowPlan": frozenset({"steps"}),
+    "RoutingDecisionContract": frozenset({"selected_route"}),
+    "OutcomeEvent": frozenset({"event_type", "outcome", "occurred_at"}),
+}
+_BUDGET_FIELDS = frozenset(
+    {
+        "max_usd",
+        "estimated_usd",
+        "remaining_usd",
+        "estimated_tokens",
+        "estimated_latency_ms",
+        "estimate_basis",
+    }
+)
+_LATENCY_FIELDS = frozenset({"max_ms"})
+_WORKFLOW_FIELDS = frozenset({"steps"})
+_STEP_FIELDS = frozenset({"id", "action", "objective", "parallel", "required", "verification"})
 T = TypeVar("T", bound="Contract")
 
 
@@ -34,16 +116,22 @@ class Contract:
         if unknown:
             raise ContractValidationError(f"unknown field(s): {', '.join(sorted(unknown))}")
         _validate_version_field(payload, cls=cls, declared_fields=declared_fields)
-        missing = [
+        required = set(_REQUIRED_FIELDS.get(cls.__name__, frozenset()))
+        required.update(
             item.name
             for item in declared_fields
-            if item.default is MISSING
-            and item.default_factory is MISSING
-            and item.name not in payload
-        ]
+            if item.default is MISSING and item.default_factory is MISSING
+        )
+        missing = [item for item in sorted(required) if item not in payload]
         if missing:
             raise ContractValidationError(f"missing required field(s): {', '.join(missing)}")
         type_hints = get_type_hints(cls)
+        for item in declared_fields:
+            if item.name in payload:
+                _validate_field_value(
+                    type_hints.get(item.name, item.type), payload[item.name], item.name
+                )
+        _validate_contract_semantics(cls, payload)
         coerced = {
             item.name: _coerce_field_value(type_hints.get(item.name, item.type), payload[item.name])
             for item in declared_fields
@@ -77,7 +165,7 @@ class TaskSpec(Contract):
     task_type: str
     effort: str = "unknown"
     reasoning: str = "unknown"
-    capabilities: list[Any] = field(default_factory=list)
+    capabilities: list[str] = field(default_factory=list)
     required_capabilities: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
     context: dict[str, Any] | None = None
@@ -225,13 +313,27 @@ class WorkflowPlan(Contract):
             raise ContractValidationError("legacy contract must be a JSON object")
         legacy = dict(payload)
         metadata = legacy.pop("metadata", {})
+        steps = legacy.pop("steps", [])
+        fallback_plan = legacy.pop("fallback_plan", [])
+        steps = [
+            {"action": "answer", **step}
+            if isinstance(step, dict) and "action" not in step and "objective" in step
+            else step
+            for step in steps
+        ]
+        fallback_plan = [
+            {"action": "answer", **step}
+            if isinstance(step, dict) and "action" not in step and "objective" in step
+            else step
+            for step in fallback_plan
+        ]
         mapped = {
-            "steps": legacy.pop("steps", []),
+            "steps": steps,
             "plan_id": legacy.pop("plan_id", None),
             "verification": legacy.pop("verification_plan", legacy.pop("verification", {})),
             "verification_plan_id": legacy.pop("verification_plan_id", None),
             "fallback_allowed": legacy.pop("fallback_allowed", False),
-            "fallback_plan": legacy.pop("fallback_plan", []),
+            "fallback_plan": fallback_plan,
             "policy_version": str(legacy.pop("policy_version", "1")),
             "metadata": metadata,
         }
@@ -357,10 +459,10 @@ class OutcomeEvent(Contract):
         details = legacy.pop("details", None)
         mapped = {
             "event_id": legacy.pop("event_id", None),
-            "event_type": legacy.pop("event_type", None),
+            "event_type": legacy.pop("event_type", "unknown"),
             "correlation_id": legacy.pop("correlation_id", None),
-            "outcome": legacy.pop("outcome", None),
-            "occurred_at": legacy.pop("occurred_at", None),
+            "outcome": legacy.pop("outcome", "unknown"),
+            "occurred_at": legacy.pop("occurred_at", "unknown"),
             "request_id": legacy.pop("request_id", None),
             "verification": legacy.pop("verification", {}),
             "quality": legacy.pop("quality", {}),
@@ -776,6 +878,202 @@ def _coerce_field_value(annotation: Any, value: Any) -> Any:
                 return option.from_dict(value)
         return value
     return value
+
+
+def _validate_field_value(annotation: Any, value: Any, field_name: str) -> None:
+    """Reject values that dataclass construction would otherwise accept silently."""
+    if value is None:
+        if _allows_none(annotation):
+            return
+        raise ContractValidationError(f"{field_name} must not be null")
+    origin = get_origin(annotation)
+    if origin in (_union_origin(), UnionType):
+        if any(_value_matches(option, value) for option in get_args(annotation)):
+            return
+        raise ContractValidationError(f"{field_name} has invalid type")
+    if origin in (list, tuple):
+        if not isinstance(value, list):
+            raise ContractValidationError(f"{field_name} must be an array")
+        item_type = get_args(annotation)[0] if get_args(annotation) else Any
+        for child in value:
+            _validate_field_value(item_type, child, field_name)
+        return
+    if origin is dict:
+        if not isinstance(value, dict):
+            raise ContractValidationError(f"{field_name} must be an object")
+        args = get_args(annotation)
+        value_type = args[1] if len(args) > 1 else Any
+        for child in value.values():
+            _validate_field_value(value_type, child, field_name)
+        return
+    if annotation is Any or annotation is object:
+        return
+    if isinstance(annotation, type) and not isinstance(value, annotation):
+        raise ContractValidationError(f"{field_name} has invalid type")
+
+
+def _value_matches(annotation: Any, value: Any) -> bool:
+    if annotation is type(None):
+        return value is None
+    if annotation is Any or annotation is object:
+        return True
+    if annotation is float:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    origin = get_origin(annotation)
+    if origin in (list, tuple):
+        return isinstance(value, list)
+    if origin is dict:
+        return isinstance(value, dict)
+    return isinstance(annotation, type) and isinstance(value, annotation)
+
+
+def _allows_none(annotation: Any) -> bool:
+    return type(None) in get_args(annotation)
+
+
+def _validate_enum(value: Any, allowed: frozenset[str], field_name: str) -> None:
+    if not isinstance(value, str) or value not in allowed:
+        choices = ", ".join(sorted(allowed))
+        raise ContractValidationError(f"{field_name} must be one of: {choices}")
+
+
+def _validate_non_negative(value: Any, field_name: str, *, integer: bool = False) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ContractValidationError(f"{field_name} must be a non-negative number")
+    if integer and type(value) is not int:
+        raise ContractValidationError(f"{field_name} must be a non-negative integer")
+    try:
+        if not math.isfinite(float(value)):
+            raise ContractValidationError(f"{field_name} must be finite")
+    except (OverflowError, ValueError) as exc:
+        raise ContractValidationError(f"{field_name} must be finite") from exc
+    if value < 0:
+        raise ContractValidationError(f"{field_name} must be a non-negative number")
+
+
+def _validate_contract_semantics(cls: type[Contract], payload: dict[str, Any]) -> None:
+    """Apply v1 safety rules shared by Python producers and JSON Schema consumers."""
+    if cls is TaskSpec:
+        if not payload["objective"].strip():
+            raise ContractValidationError("objective must not be empty")
+        if not payload["task_type"].strip():
+            raise ContractValidationError("task_type must not be empty")
+        _validate_enum(payload.get("effort", "unknown"), _TASK_EFFORTS, "effort")
+        _validate_enum(payload.get("reasoning", "unknown"), _TASK_REASONING_LEVELS, "reasoning")
+        for name, allowed in (
+            ("privacy", _TASK_PRIVACY_LEVELS),
+            ("risk", _TASK_RISK_LEVELS),
+            ("parallelism", _TASK_PARALLELISM),
+            ("degraded_mode_policy", _DEGRADED_MODE_POLICIES),
+        ):
+            defaults = {
+                "privacy": "unknown",
+                "risk": "unknown",
+                "parallelism": "serial",
+                "degraded_mode_policy": "deny",
+            }
+            _validate_enum(payload.get(name, defaults.get(name)), allowed, name)
+        for name in ("capabilities", "required_capabilities", "tools", "approvals"):
+            if any(not isinstance(item, str) or not item.strip() for item in payload.get(name, [])):
+                raise ContractValidationError(f"{name} must contain non-empty strings")
+        budget = payload.get("budget", {})
+        unknown_budget = set(budget) - _BUDGET_FIELDS
+        if unknown_budget:
+            raise ContractValidationError(
+                f"unknown budget field(s): {', '.join(sorted(unknown_budget))}"
+            )
+        for key in ("max_usd", "estimated_usd", "remaining_usd"):
+            if key in budget:
+                _validate_non_negative(budget[key], f"budget.{key}")
+        for key in ("estimated_tokens", "estimated_latency_ms"):
+            if key in budget:
+                _validate_non_negative(budget[key], f"budget.{key}", integer=True)
+        if payload.get("latency_limit_ms") is not None:
+            _validate_non_negative(payload["latency_limit_ms"], "latency_limit_ms", integer=True)
+        latency = payload.get("latency")
+        if latency is not None:
+            unknown_latency = set(latency) - _LATENCY_FIELDS
+            if unknown_latency:
+                raise ContractValidationError(
+                    f"unknown latency field(s): {', '.join(sorted(unknown_latency))}"
+                )
+            if "max_ms" in latency:
+                _validate_non_negative(latency["max_ms"], "latency.max_ms", integer=True)
+        workflow = payload.get("workflow")
+        if workflow is not None:
+            if not isinstance(workflow, dict) or set(workflow) - _WORKFLOW_FIELDS:
+                unknown = (
+                    set(workflow) - _WORKFLOW_FIELDS
+                    if isinstance(workflow, dict)
+                    else {"<non-object>"}
+                )
+                raise ContractValidationError(
+                    f"workflow has unknown or invalid field(s): {', '.join(sorted(unknown))}"
+                )
+            if "steps" not in workflow:
+                raise ContractValidationError("workflow requires 'steps'")
+            _validate_workflow_steps(workflow.get("steps", []), "workflow.steps")
+    elif cls is WorkflowPlan:
+        _validate_workflow_steps(payload["steps"], "steps", allow_legacy_shape=True)
+        if payload.get("fallback_plan"):
+            _validate_workflow_steps(
+                payload["fallback_plan"], "fallback_plan", allow_legacy_shape=True
+            )
+        verification = payload.get("verification")
+        if verification is not None and isinstance(verification, dict):
+            _validate_enum(
+                verification.get("on_failure", "deny"),
+                frozenset({"deny", "replan_or_deny"}),
+                "verification.on_failure",
+            )
+    elif cls is RuntimeCandidate:
+        _validate_enum(payload["availability"], _AVAILABILITY_STATES, "availability")
+    elif cls is AvailabilitySnapshot:
+        _validate_enum(payload.get("state", "unknown"), _AVAILABILITY_STATES, "state")
+        _validate_non_negative(payload.get("ttl_seconds", 60), "ttl_seconds", integer=True)
+    elif cls is RoutingDecisionContract:
+        _validate_enum(payload.get("policy_floor", "none"), _POLICY_FLOORS, "policy_floor")
+        if payload.get("fallback_plan"):
+            _validate_workflow_steps(payload["fallback_plan"], "fallback_plan")
+    elif cls is OutcomeEvent:
+        for name in ("event_type", "occurred_at"):
+            value = payload[name]
+            if not isinstance(value, str) or not value.strip():
+                raise ContractValidationError(f"{name} must be a non-empty string")
+        _validate_enum(payload["outcome"], _OUTCOME_VALUES, "outcome")
+        _validate_non_negative(payload.get("latency_ms"), "latency_ms") if payload.get(
+            "latency_ms"
+        ) is not None else None
+        _validate_non_negative(payload.get("retries", 0), "retries", integer=True)
+
+
+def _validate_workflow_steps(
+    value: Any, field_name: str, *, allow_legacy_shape: bool = False
+) -> None:
+    if not isinstance(value, list) or not value:
+        raise ContractValidationError(f"{field_name} must contain at least one step")
+    for index, step in enumerate(value):
+        if not isinstance(step, dict):
+            raise ContractValidationError(f"{field_name}[{index}] must be an object")
+        unknown = set(step) - _STEP_FIELDS
+        if unknown:
+            raise ContractValidationError(
+                f"{field_name}[{index}] has unknown field(s): {', '.join(sorted(unknown))}"
+            )
+        action = step.get("action")
+        if action is None and allow_legacy_shape and isinstance(step.get("objective"), str):
+            action = "answer"
+        if not isinstance(action, str) or action not in _WORKFLOW_ACTIONS:
+            raise ContractValidationError(f"{field_name}[{index}].action is unsafe or unknown")
+        if "parallel" in step and type(step["parallel"]) is not bool:
+            raise ContractValidationError(f"{field_name}[{index}].parallel must be boolean")
+        if "required" in step and type(step["required"]) is not bool:
+            raise ContractValidationError(f"{field_name}[{index}].required must be boolean")
+        for name in ("id", "objective", "verification"):
+            if name in step and (not isinstance(step[name], str) or not step[name].strip()):
+                raise ContractValidationError(
+                    f"{field_name}[{index}].{name} must be a non-empty string"
+                )
 
 
 def _is_contract_type(annotation: Any) -> bool:

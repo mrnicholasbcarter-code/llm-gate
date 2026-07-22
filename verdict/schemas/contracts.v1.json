@@ -1,7 +1,7 @@
 {
  "$schema":"https://json-schema.org/draft/2020-12/schema",
  "$id":"https://llm-gate.dev/schemas/contracts.v1.json",
- "title":"llm-gate shared contracts v1",
+ "title":"Verdict shared contracts v1",
  "type":"object",
  "additionalProperties":false,
  "required":[
@@ -21,7 +21,7 @@
   "task_spec":{
    "$ref":"#/$defs/task_spec"
   },
-  "workflow_plan":{
+    "workflow_plan":{
    "$ref":"#/$defs/workflow_plan"
   },
   "runtime_candidate":{
@@ -62,25 +62,30 @@
    ],
    "properties":{
     "objective":{
-     "type":"string"
+     "type":"string",
+     "minLength":1
     },
     "task_type":{
-     "type":"string"
+     "type":"string",
+     "minLength":1
     },
     "effort":{
-     "type":"string"
+     "enum":["unknown","low","medium","high"]
     },
     "reasoning":{
-     "type":"string"
+     "enum":["unknown","low","medium","high"]
     },
     "capabilities":{
-     "type":"array"
+     "type":"array",
+     "items":{"type":"string","minLength":1}
     },
     "required_capabilities":{
-     "type":"array"
+     "type":"array",
+     "items":{"type":"string","minLength":1}
     },
     "tools":{
-     "type":"array"
+     "type":"array",
+     "items":{"type":"string","minLength":1}
     },
     "context":{
      "type":[
@@ -95,34 +100,68 @@
      "type":"object"
     },
     "privacy":{
-     "type":"string"
+     "enum":["unknown","public","internal","trusted_upstream","restricted"]
     },
     "risk":{
-     "type":"string"
+     "enum":["unknown","low","medium","high","critical"]
     },
     "budget":{
-     "type":"object"
+     "type":"object",
+     "additionalProperties":false,
+     "properties":{
+      "max_usd":{"type":"number","minimum":0},
+      "estimated_usd":{"type":"number","minimum":0},
+      "remaining_usd":{"type":"number","minimum":0},
+      "estimated_tokens":{"type":"integer","minimum":0},
+      "estimated_latency_ms":{"type":"integer","minimum":0},
+      "estimate_basis":{"type":"string","minLength":1}
+     }
     },
     "latency":{
      "type":[
       "object",
       "null"
-     ]
+     ],
+     "additionalProperties":false,
+     "properties":{"max_ms":{"type":"integer","minimum":0}}
     },
     "latency_limit_ms":{
-     "type":"integer"
+     "type":"integer",
+     "minimum":0
     },
     "workflow":{
      "type":[
       "object",
       "null"
-     ]
+     ],
+     "properties":{
+      "steps":{
+       "type":"array",
+       "minItems":1,
+       "items":{
+        "type":"object",
+        "additionalProperties":false,
+        "required":["action"],
+        "properties":{
+         "id":{"type":"string","minLength":1},
+         "action":{"enum":["answer","research","implement","review","verify","synthesis","specialist","human_approval","execute"]},
+         "objective":{"type":"string","minLength":1},
+         "parallel":{"type":"boolean"},
+         "required":{"type":"boolean"},
+         "verification":{"type":"string","minLength":1}
+        }
+       }
+      }
+     },
+     "required":["steps"],
+     "additionalProperties":false
     },
     "approvals":{
-     "type":"array"
+     "type":"array",
+     "items":{"type":"string","minLength":1}
     },
     "criticality":{
-     "type":"string"
+     "enum":["unknown","low","medium","high","critical"]
     },
     "verification":{
      "type":[
@@ -131,7 +170,7 @@
      ]
     },
     "parallelism":{
-     "type":"string"
+     "enum":["serial","parallel","bounded"]
     },
     "destructive_operation":{
      "type":"boolean"
@@ -140,7 +179,7 @@
      "type":"boolean"
     },
     "degraded_mode_policy":{
-     "type":"string"
+     "enum":["deny","allow","allow_with_penalty"]
     },
     "metadata":{
      "type":"object"
@@ -156,9 +195,23 @@
    "required":[
     "steps"
    ],
-   "properties":{
+    "properties":{
     "steps":{
-     "type":"array"
+     "type":"array",
+     "minItems":1,
+     "items":{
+      "type":"object",
+      "additionalProperties":false,
+      "required":["action"],
+      "properties":{
+       "id":{"type":"string","minLength":1},
+       "action":{"enum":["answer","research","implement","review","verify","synthesis","specialist","human_approval","execute"]},
+       "objective":{"type":"string","minLength":1},
+       "parallel":{"type":"boolean"},
+       "required":{"type":"boolean"},
+       "verification":{"type":"string","minLength":1}
+      }
+     }
     },
     "plan_id":{
      "type":[
@@ -182,7 +235,20 @@
      "type":"boolean"
     },
     "fallback_plan":{
-     "type":"array"
+     "type":"array",
+     "items":{
+      "type":"object",
+      "additionalProperties":false,
+      "required":["action"],
+      "properties":{
+       "id":{"type":"string","minLength":1},
+       "action":{"enum":["answer","research","implement","review","verify","synthesis","specialist","human_approval","execute"]},
+       "objective":{"type":"string","minLength":1},
+       "parallel":{"type":"boolean"},
+       "required":{"type":"boolean"},
+       "verification":{"type":"string","minLength":1}
+      }
+     }
     },
     "policy_version":{
      "type":"string"
@@ -216,7 +282,7 @@
      "type":"boolean"
     },
     "availability":{
-     "type":"string"
+     "enum":["eligible","ready","healthy","outage","degraded","unknown","unavailable","denied","quota_exhausted","rate_limited","unauthorized","locked_out","circuit_open","timeout","malformed","capability_mismatch","policy_denied"]
     },
     "signals":{
      "type":"object"
@@ -258,7 +324,7 @@
      "type":"string"
     },
     "state":{
-     "type":"string"
+     "enum":["eligible","ready","healthy","outage","degraded","unknown","unavailable","denied","quota_exhausted","rate_limited","unauthorized","locked_out","circuit_open","timeout","malformed","capability_mismatch","policy_denied"]
     },
     "signals":{
      "type":"object"
@@ -270,7 +336,8 @@
      "type":"string"
     },
     "ttl_seconds":{
-     "type":"integer"
+     "type":"integer",
+     "minimum":0
     },
     "expires_at":{
      "type":[
@@ -307,7 +374,7 @@
      "type":"array"
     },
     "policy_floor":{
-     "type":"string"
+     "enum":["none","isolated","protected","standard","best_effort","medium","high"]
     },
     "planner_mode":{
      "type":"string"
@@ -319,7 +386,20 @@
      "type":"object"
     },
     "fallback_plan":{
-     "type":"array"
+     "type":"array",
+     "items":{
+      "type":"object",
+      "additionalProperties":false,
+      "required":["action"],
+      "properties":{
+       "id":{"type":"string","minLength":1},
+       "action":{"enum":["answer","research","implement","review","verify","synthesis","specialist","human_approval","execute"]},
+       "objective":{"type":"string","minLength":1},
+       "parallel":{"type":"boolean"},
+       "required":{"type":"boolean"},
+       "verification":{"type":"string","minLength":1}
+      }
+     }
     },
     "correlation_id":{
      "type":[
@@ -344,7 +424,7 @@
   "outcome_event":{
    "type":"object",
    "additionalProperties":false,
-   "required":[],
+   "required":["event_type","outcome","occurred_at"],
    "properties":{
     "event_id":{
      "type":[
@@ -353,10 +433,8 @@
      ]
     },
     "event_type":{
-     "type":[
-      "string",
-      "null"
-     ]
+     "type":"string",
+     "minLength":1
     },
     "correlation_id":{
      "type":[
@@ -365,16 +443,11 @@
      ]
     },
     "outcome":{
-     "type":[
-      "string",
-      "null"
-     ]
+     "enum":["success","failure","partial","denied","unknown","cancelled","timeout","error","skipped"]
     },
     "occurred_at":{
-     "type":[
-      "string",
-      "null"
-     ]
+     "type":"string",
+     "minLength":1
     },
     "request_id":{
      "type":[
@@ -590,16 +663,14 @@
      ]
     },
     "outcome":{
-     "type":[
-      "string",
-      "null"
-     ]
+     "enum":["success","failure","partial","denied","unknown","cancelled","timeout","error","skipped"]
     },
     "occurred_at":{
      "type":[
       "string",
       "null"
-     ]
+     ],
+     "minLength":1
     },
     "request_id":{
      "type":[
