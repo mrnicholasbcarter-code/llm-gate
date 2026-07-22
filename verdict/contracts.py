@@ -6,7 +6,7 @@ import json
 import math
 from dataclasses import MISSING, Field, dataclass, field, fields
 from types import UnionType
-from typing import Any, ClassVar, TypeVar, cast, get_args, get_origin, get_type_hints
+from typing import Any, ClassVar, TypedDict, TypeVar, cast, get_args, get_origin, get_type_hints
 
 from verdict.security import fingerprint_text, redact_text
 
@@ -15,7 +15,43 @@ class ContractValidationError(ValueError):
     """Raised for unknown fields, missing fields, or secret-bearing payloads."""
 
 
-_SECRET_NAMES = {"api_key", "apikey", "authorization", "password", "secret", "token"}
+class EpisodeNamespace(TypedDict, total=False):
+    tenant: str
+    project: str
+
+
+class EpisodeProvenance(TypedDict, total=False):
+    source: str
+    source_version: str | None
+    created_by: str | None
+
+
+class EpisodeRetention(TypedDict, total=False):
+    policy: str
+    expires_at: str | None
+    deletable: bool
+
+
+class EpisodeConsent(TypedDict, total=False):
+    consent_given: bool
+    deletion_requested: bool
+    export_requested: bool
+
+
+_EMBEDDING_MODES = frozenset({"none", "redacted_metadata", "testing_only_hash"})
+
+
+_SECRET_NAMES = {
+    "api_key",
+    "apikey",
+    "authorization",
+    "password",
+    "secret",
+    "token",
+    "prompt",
+    "completion",
+    "messages",
+}
 
 # These are the safety-sensitive values that v1 intentionally freezes.  Task
 # types, planner modes, provider identifiers, and metadata remain open strings
@@ -491,6 +527,10 @@ class TaskEpisode(Contract):
     approvals_count: int = 0
     context_keys: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    namespace: dict[str, Any] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
+    retention: dict[str, Any] = field(default_factory=dict)
+    embedding_version: str | None = "none"
     schema_version: str = "1"
 
     @classmethod
@@ -533,6 +573,10 @@ class WorkflowEpisode(Contract):
     verification_plan_id: str | None = None
     policy_version: str = "1"
     metadata: dict[str, Any] = field(default_factory=dict)
+    namespace: dict[str, Any] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
+    retention: dict[str, Any] = field(default_factory=dict)
+    embedding_version: str | None = "none"
     schema_version: str = "1"
 
     @classmethod
@@ -588,6 +632,10 @@ class OutcomeEpisode(Contract):
     provider_version: str | None = None
     model_version: str | None = None
     details: dict[str, Any] | None = None
+    namespace: dict[str, Any] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
+    retention: dict[str, Any] = field(default_factory=dict)
+    embedding_version: str | None = "none"
     schema_version: str = "1"
 
     @classmethod
@@ -661,6 +709,16 @@ class TaskWorkflowOutcomeEpisode(Contract):
     task: TaskEpisode | dict[str, Any] = field(default_factory=dict)
     workflow: WorkflowEpisode | dict[str, Any] = field(default_factory=dict)
     outcome: OutcomeEpisode | dict[str, Any] = field(default_factory=dict)
+    namespace: dict[str, Any] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
+    retention: dict[str, Any] = field(default_factory=dict)
+    consent: dict[str, Any] = field(default_factory=dict)
+    embedding_version: str | None = "none"
+    embedding_mode: str = "none"
+    supersedes: str | None = None
+    valid_from: str | None = None
+    valid_until: str | None = None
+    testing_only: bool = False
     schema_version: str = "1"
 
     @classmethod
@@ -1035,6 +1093,16 @@ def _validate_contract_semantics(cls: type[Contract], payload: dict[str, Any]) -
         _validate_enum(payload.get("policy_floor", "none"), _POLICY_FLOORS, "policy_floor")
         if payload.get("fallback_plan"):
             _validate_workflow_steps(payload["fallback_plan"], "fallback_plan")
+
+    # Episode validations
+    if getattr(cls, "__name__", "").endswith("Episode"):
+        if "embedding_mode" in payload:
+            mode = payload["embedding_mode"]
+            _validate_enum(mode, _EMBEDDING_MODES, "embedding_mode")
+            if mode == "testing_only_hash" and not payload.get("testing_only"):
+                raise ContractValidationError(
+                    "embedding_mode 'testing_only_hash' requires testing_only=True"
+                )
     elif cls is OutcomeEvent:
         for name in ("event_type", "occurred_at"):
             value = payload[name]

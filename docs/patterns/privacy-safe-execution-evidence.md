@@ -64,3 +64,12 @@ resource-close assertions, authorization-scope tests, and a replay receipt
 containing the code SHA and contract version. Positive learning labels must be
 admitted only from independently verified outcomes, following the provenance
 rule in Ruflo ADR-171.
+
+## Episode Privacy Schema
+
+In execution evidence episodes, we strictly enforce schema boundaries that define what is stored, omitted, and deleted:
+
+- **Stored**: Telemetry, latency, cost, workflow plans, hashed fingerprints, selected routes, redaction lengths, and `namespace`/`provenance` telemetry logic.
+- **Omitted/Redacted**: `prompt`, `completion`, `messages`, `content`, `api_key`, `secret`, `password`, `token` are fundamentally stripped or redacted structurally as `[redacted]` before they are able to persist into any log.
+- **Deleted**: No active background clean up tasks exist. Clients must actively execute retention and deletion policies based off `retention.expires_at`, `retention.deletable` and `consent.deletion_requested` attributes available on every durable episode. 
+- **Testing Only**: The `embedding_mode="hash"` and `testing_only_hash` attributes encode semantic logic ensuring privacy compliance across staging/CI. Production limits hash-based embedding modes strictly via `testing_only=True` requirements.

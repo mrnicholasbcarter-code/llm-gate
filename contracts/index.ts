@@ -96,7 +96,7 @@ function rejectSecrets(value: unknown, path: readonly (string | number)[] = []):
   }
   if (!value || typeof value !== "object") return;
   for (const [key, child] of Object.entries(value)) {
-    if (isSecretKey(key) && !isRedacted(child)) {
+    if ((isSecretKey(key) || isSensitiveContentKey(key)) && !isRedacted(child)) {
       throw new ContractValidationError(
         "secret_bearing",
         `secret-bearing field rejected: ${key}`,
@@ -144,6 +144,31 @@ const availabilityStates = [
   "capability_mismatch",
   "policy_denied",
 ] as const;
+
+const episodeNamespaceSchema = z.object({
+  tenant: z.string(),
+  project: z.string(),
+}).strict();
+
+const episodeProvenanceSchema = z.object({
+  source: z.string(),
+  source_version: nullableString.default(null),
+  created_by: nullableString.default(null),
+}).strict();
+
+const episodeRetentionSchema = z.object({
+  policy: z.string(),
+  expires_at: nullableString.default(null),
+  deletable: z.boolean(),
+}).strict();
+
+const episodeConsentSchema = z.object({
+  consent_given: z.boolean(),
+  deletion_requested: z.boolean(),
+  export_requested: z.boolean(),
+}).strict();
+
+const embeddingModeValues = ["none", "redacted_metadata", "testing_only_hash"] as const;
 const outcomeValues = [
   "success",
   "failure",
@@ -208,6 +233,10 @@ const taskSpecSchema = z.object({
   destructive_operation: z.boolean().default(false),
   production_impact: z.boolean().default(false),
   degraded_mode_policy: z.enum(["deny", "allow", "allow_with_penalty"]).default("deny"),
+  namespace: episodeNamespaceSchema.optional(),
+  provenance: episodeProvenanceSchema.optional(),
+  retention: episodeRetentionSchema.optional(),
+  embedding_version: z.string().optional(),
   metadata: jsonObject.default({}),
   schema_version: schemaVersion.default("1"),
 }).strict();
@@ -239,6 +268,10 @@ const workflowPlanSchema = z.object({
   fallback_allowed: z.boolean().default(false),
   fallback_plan: fallbackStepsSchema.default([]),
   policy_version: z.string().default("1"),
+  namespace: episodeNamespaceSchema.optional(),
+  provenance: episodeProvenanceSchema.optional(),
+  retention: episodeRetentionSchema.optional(),
+  embedding_version: z.string().optional(),
   metadata: jsonObject.default({}),
   schema_version: schemaVersion.default("1"),
 }).strict();
@@ -306,6 +339,10 @@ const taskEpisodeSchema = z.object({
   tools: z.array(z.string()).default([]),
   approvals_count: nonNegativeInteger.default(0),
   context_keys: z.array(z.string()).default([]),
+  namespace: episodeNamespaceSchema.optional(),
+  provenance: episodeProvenanceSchema.optional(),
+  retention: episodeRetentionSchema.optional(),
+  embedding_version: z.string().optional(),
   metadata: jsonObject.default({}),
   schema_version: schemaVersion.default("1"),
 }).strict();
@@ -319,6 +356,10 @@ const workflowEpisodeSchema = z.object({
   verification_checks: z.array(z.string()).default([]),
   verification_plan_id: nullableString.default(null),
   policy_version: z.string().default("1"),
+  namespace: episodeNamespaceSchema.optional(),
+  provenance: episodeProvenanceSchema.optional(),
+  retention: episodeRetentionSchema.optional(),
+  embedding_version: z.string().optional(),
   metadata: jsonObject.default({}),
   schema_version: schemaVersion.default("1"),
 }).strict();
@@ -342,6 +383,10 @@ const outcomeEpisodeSchema = z.object({
   provider_version: nullableString.default(null),
   model_version: nullableString.default(null),
   details: jsonObject.nullable().default(null),
+  namespace: episodeNamespaceSchema.optional(),
+  provenance: episodeProvenanceSchema.optional(),
+  retention: episodeRetentionSchema.optional(),
+  embedding_version: z.string().optional(),
   schema_version: schemaVersion.default("1"),
 }).strict();
 
@@ -353,8 +398,21 @@ const taskWorkflowOutcomeEpisodeSchema = z.object({
   task: z.union([taskEpisodeSchema, jsonObject]).default({}),
   workflow: z.union([workflowEpisodeSchema, jsonObject]).default({}),
   outcome: z.union([outcomeEpisodeSchema, jsonObject]).default({}),
+  namespace: episodeNamespaceSchema.optional(),
+  provenance: episodeProvenanceSchema.optional(),
+  retention: episodeRetentionSchema.optional(),
+  consent: episodeConsentSchema.optional(),
+  embedding_version: z.string().optional(),
+  embedding_mode: z.enum(embeddingModeValues).optional(),
+  supersedes: nullableString.default(null),
+  valid_from: nullableString.default(null),
+  valid_until: nullableString.default(null),
+  testing_only: z.boolean().optional(),
   schema_version: schemaVersion.default("1"),
-}).strict();
+}).strict().refine(
+  (data) => !(data.embedding_mode === "testing_only_hash" && !data.testing_only),
+  { message: "embedding_mode 'testing_only_hash' requires testing_only=true" }
+);
 
 const learningEventSchema = z.object({
   event_id: nullableString.default(null),
