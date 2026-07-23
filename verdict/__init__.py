@@ -63,6 +63,7 @@ from verdict.evidence import (
     request_features,
 )
 from verdict.gate import Gate
+from verdict.hivemind import HivemindRAG
 from verdict.intelligence import IntelligenceService, ReadinessReport
 from verdict.models import ModelInfo, ProviderConfig, RoutingDecision
 from verdict.omniroute import OmniRouteHTTPTransport

@@ -22,13 +22,13 @@ class FakeIntelligence:
         )
 
 
-def test_critical_is_zero():
-    assert Gate.TIER_MAP["critical"] == 0
+def test_critical_is_09():
+    assert Gate.COMPLEXITY_MAP["critical"] == 0.9
 
 
-def test_high_is_one():
-    assert Gate.TIER_MAP["high"] == 1
+def test_high_is_07():
+    assert Gate.COMPLEXITY_MAP["high"] == 0.7
 
 
-def test_low_is_three():
-    assert Gate.TIER_MAP["low"] == 3
+def test_low_is_02():
+    assert Gate.COMPLEXITY_MAP["low"] == 0.2

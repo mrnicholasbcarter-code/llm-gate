@@ -3,13 +3,13 @@
 from verdict.intelligence import DEGRADED_PROFILE, IntelligenceService
 from verdict.models import ProviderConfig, RoutingDecision
 
-TIER_MAP = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+COMPLEXITY_MAP = {"critical": 0.9, "high": 0.7, "medium": 0.5, "low": 0.2}
 
 
 class Gate:
     """The main router client."""
 
-    TIER_MAP = TIER_MAP
+    COMPLEXITY_MAP = COMPLEXITY_MAP
 
     def __init__(
         self,
