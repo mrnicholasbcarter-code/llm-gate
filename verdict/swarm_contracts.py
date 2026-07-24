@@ -66,15 +66,14 @@ class TerminationReason(str, Enum):
 
 # Safe field names that cannot be escaped
 _SAFE_PATH_CHARS = re.compile(r"^[a-zA-Z0-9._/-]+$")
-_ROOT_PATHS = frozenset({
-    "/home/nick/dev",
-    "/workspace",
-})
+_ROOT_PATHS = frozenset({"/home/nick/dev", "/workspace"})
 
 
 def _get_allowed_roots() -> frozenset[str]:
     """Get allowed root paths, including system temp dir at runtime."""
     return frozenset({"/home/nick/dev", "/workspace", tempfile.gettempdir()})
+
+
 # /tmp is intentionally excluded from hardcoded roots to avoid B108
 # Use tempfile.gettempdir() at runtime instead
 
