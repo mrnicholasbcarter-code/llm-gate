@@ -1,6 +1,7 @@
 """Swarm Orchestration for Verdict utilizing MCP capabilities."""
 import logging
 from typing import Any
+
 from verdict.intelligence import IntelligenceService
 
 logger = logging.getLogger(__name__)

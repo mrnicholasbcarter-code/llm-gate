@@ -4,11 +4,11 @@ logger = logging.getLogger(__name__)
 
 class HivemindRAG:
     """Local-first hybrid retrieval memory system."""
-    
+
     def __init__(self, use_hybrid: bool = True):
         self.use_hybrid = use_hybrid
         self.session_memory = []
-        
+
     def embed_and_store(self, text: str):
         # Native ONNX embedding logic placeholder
         self.session_memory.append(text)
